@@ -51,6 +51,8 @@ alter table public.bw_students add column if not exists pin_hash text;
 alter table public.bw_students add column if not exists failed_attempts int not null default 0;
 alter table public.bw_students add column if not exists locked_until timestamptz;
 alter table public.bw_students add column if not exists created_at timestamptz not null default now();
+-- Gender, optional: 'M' (male) or 'F' (female)
+alter table public.bw_students add column if not exists gender text;
 
 -- Upgrade: hash any plain-text PINs left by the older app, then drop that column.
 do $$ begin
@@ -421,39 +423,65 @@ begin
   delete from bw_classes where id = p_id;
 end $$;
 
+-- 'M' for male, 'F' for female, null when not set. Accepts M/F, male/female, boy/girl and French words.
+create or replace function public.bw__gender(v text) returns text
+language sql immutable as $$
+  select case
+    when lower(trim(coalesce(v, ''))) in ('m', 'male', 'boy', 'boys', 'man', 'h', 'homme', 'garcon', 'garçon', 'masculin', 'g') then 'M'
+    when lower(trim(coalesce(v, ''))) in ('f', 'female', 'girl', 'girls', 'woman', 'femme', 'fille', 'feminin', 'féminin') then 'F'
+  end
+$$;
+
+drop function if exists public.bw_t_students(text, uuid);
 create or replace function public.bw_t_students(p_token text, p_class_id uuid)
-returns table (id uuid, name text, has_pin boolean)
+returns table (id uuid, name text, has_pin boolean, gender text)
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return query select s.id, s.name, s.pin_hash is not null from bw_students s
+  return query select s.id, s.name, s.pin_hash is not null, s.gender from bw_students s
                 where s.class_id = p_class_id order by s.name;
 end $$;
 
-create or replace function public.bw_t_add_students(p_token text, p_class_id uuid, p_names text[])
+-- Add students by name, with an optional gender for each (same order as the names).
+-- Names already in the class are skipped, but their gender is filled in if it was missing.
+drop function if exists public.bw_t_add_students(text, uuid, text[]);
+create or replace function public.bw_t_add_students(p_token text, p_class_id uuid, p_names text[], p_genders text[] default null)
 returns int
 language plpgsql security definer set search_path = public, extensions as $$
 declare n int;
 begin
   perform bw__teacher(p_token);
-  with ins as (
-    insert into bw_students (class_id, name)
-    select p_class_id, d.nm from (
-      select distinct on (lower(trim(x))) left(trim(x), 80) as nm from unnest(p_names) x where trim(x) <> ''
-    ) d
+  with src as (
+    select distinct on (lower(trim(u.nm))) left(trim(u.nm), 80) as nm, bw__gender(u.gd) as gd
+      from unnest(p_names, coalesce(p_genders, '{}'::text[])) as u(nm, gd)
+     where trim(coalesce(u.nm, '')) <> ''),
+  ins as (
+    insert into bw_students (class_id, name, gender) select p_class_id, src.nm, src.gd from src
     on conflict do nothing
+    returning 1),
+  upd as (
+    update bw_students s set gender = src.gd from src
+     where s.class_id = p_class_id and lower(s.name) = lower(src.nm) and s.gender is null and src.gd is not null
     returning 1)
   select count(*) into n from ins;
   return n;
 end $$;
 
 -- Every student in every class, so an import can find students who are already in another class
+drop function if exists public.bw_t_all_students(text);
 create or replace function public.bw_t_all_students(p_token text)
-returns table (id uuid, name text, class_id uuid)
+returns table (id uuid, name text, class_id uuid, gender text)
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return query select s.id, s.name, s.class_id from bw_students s;
+  return query select s.id, s.name, s.class_id, s.gender from bw_students s;
+end $$;
+
+create or replace function public.bw_t_set_gender(p_token text, p_student_id uuid, p_gender text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  update bw_students set gender = bw__gender(p_gender) where id = p_student_id;
 end $$;
 
 -- Move students to another class (for example from 'Year 10' into their form 10C).

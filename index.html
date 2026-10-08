@@ -407,6 +407,10 @@ const num = n => Number(n||0).toLocaleString('en-GB');
 const guessYear = name => { const m = String(name||'').trim().match(/^(?:year|yr|y)?\s*(\d{1,2})\s*[a-z]{0,3}$/i); return m ? `Year ${+m[1]}` : ''; };
 const normYear = v => { const s = String(v ?? '').replace(/\s+/g, ' ').trim(); const m = s.match(/^(?:year|yr|y)?\s*(\d{1,2})$/i); return m ? `Year ${+m[1]}` : s; };
 const NO_YEAR = 'Other classes';
+// Gender: 'M' (male), 'F' (female) or null. Accepts M/F, male/female, boy/girl and French words.
+const normGender = v => { const t = String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  return /^(m|male|boys?|man|h|homme|garcon|masculin|g)$/.test(t) ? 'M' : /^(f|female|girls?|woman|femme|fille|feminin)$/.test(t) ? 'F' : null; };
+const GENDER_LABEL = {M:'Male', F:'Female'};
 function byYear(classes){
   const m = new Map();
   classes.forEach(c=>{ const y = c.year_group || NO_YEAR; if(!m.has(y)) m.set(y, []); m.get(y).push(c); });
@@ -473,7 +477,8 @@ function makeCloud(){
     tUpdateClass: (tok, id, name, code, goal, year) => rpc('bw_t_update_class', {p_token:tok, p_id:id, p_name:name, p_code:code, p_goal:goal, p_year:year||''}),
     tDeleteClass: (tok, id) => rpc('bw_t_delete_class', {p_token:tok, p_id:id}),
     tStudents: (tok, cid) => rpc('bw_t_students', {p_token:tok, p_class_id:cid}),
-    tAddStudents: (tok, cid, names) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names}),
+    tAddStudents: (tok, cid, names, genders) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names, ...(genders ? {p_genders:genders} : {})}),
+    tSetGender: (tok, id, g) => rpc('bw_t_set_gender', {p_token:tok, p_student_id:id, p_gender:g || ''}),
     tResetPin: (tok, id) => rpc('bw_t_reset_pin', {p_token:tok, p_student_id:id}),
     tAllStudents: tok => rpc('bw_t_all_students', {p_token:tok}),
     tMoveStudents: (tok, to, ids) => rpc('bw_t_move_students', {p_token:tok, p_to:to, p_ids:ids}),
@@ -530,14 +535,17 @@ const Local = {
   async tAddClass(tok, name, code, goal, year){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,year_group:normYear(year)||null,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
   async tUpdateClass(tok, id, name, code, goal, year){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(!name) throw new Error('The class needs a name.'); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.name=name; c.code=code; c.weekly_goal=goal; c.year_group=normYear(year)||null; } this._save(d); },
   async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); d.plans=(d.plans||[]).filter(p=>p.class_id!==id); d.tests=(d.tests||[]).filter(t=>t.class_id!==id); this._save(d); },
-  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin})).sort(byName); },
-  async tAddStudents(tok, cid, names){
+  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin,gender:s.gender||null})).sort(byName); },
+  async tAddStudents(tok, cid, names, genders){
     const d=this._t(tok), have=new Set(d.students.filter(s=>s.class_id===cid).map(s=>norm(s.name))); let n=0;
-    names.forEach(name=>{ if(!have.has(norm(name))){ d.students.push({id:uid(),class_id:cid,name,pin:null}); have.add(norm(name)); n++; } });
+    names.forEach((name, i)=>{ const g = normGender(genders?.[i]);
+      if(!have.has(norm(name))){ d.students.push({id:uid(),class_id:cid,name,pin:null,gender:g}); have.add(norm(name)); n++; }
+      else if(g){ const x = d.students.find(s=>s.class_id===cid && norm(s.name)===norm(name)); if(x && !x.gender) x.gender = g; } });
     this._save(d); return n;
   },
   async tResetPin(tok, id){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.pin=null; this._save(d); },
-  async tAllStudents(tok){ return this._t(tok).students.map(s=>({id:s.id, name:s.name, class_id:s.class_id})); },
+  async tAllStudents(tok){ return this._t(tok).students.map(s=>({id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null})); },
+  async tSetGender(tok, id, g){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.gender = normGender(g); this._save(d); },
   async tMoveStudents(tok, to, ids){
     const d=this._t(tok), c=d.classes.find(x=>x.id===to); if(!c) throw new Error('Class not found.');
     const taken = new Set(d.students.filter(s=>s.class_id===to).map(s=>norm(s.name))); let n=0;
@@ -1776,9 +1784,9 @@ async function showClass(c){
     const others = byYear(S.tclasses.filter(k=>k.id!==c.id));
     const moveSel = s => others.length ? `<select class="mv" data-move="${s.id}" aria-label="Move ${esc(s.name)} to another class"><option value="">Move to…</option>${others.map(([y, cs])=>`<optgroup label="${esc(y)}">${cs.map(k=>`<option value="${k.id}">${esc(k.name)}</option>`).join('')}</optgroup>`).join('')}</select>` : '';
     $('#studs').innerHTML = (st.length > BIG_CLASS ? `<p class="warn" style="max-width:none"><b>${st.length} students in one class.</b> Students pick their name from this list, so give each form its own class. Use <b>Import from a file</b> above and choose your form column (like 10C): students already here are moved into their form with their PIN and workouts. When this class is empty, delete it.</p>` : '')
-      + (st.length ? `<table><thead><tr><th>Name</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
+      + (st.length ? `${genderCounts(st)}<table><thead><tr><th>Name</th><th>Gender</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
       ${st.map(s=>{ const mine=ss.filter(x=>x.student_id===s.id), w=weekStats(mine,goal), A=analyse(mine);
-        return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
+        return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td><select class="mv" data-gender="${s.id}" aria-label="Gender of ${esc(s.name)}"><option value="">–</option><option value="M" ${s.gender==='M'?'selected':''}>Male</option><option value="F" ${s.gender==='F'?'selected':''}>Female</option></select></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
         <td>${mine.length?avgLvl(mine[0]):''}</td><td>${mine.length?readyCount(A):''}</td><td>${mine[0]?fmtDate(mine[0].created_at):''}</td><td>${s.has_pin?'Set':'Not set'}</td>
         <td class="actions">${moveSel(s)}${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
       : '<p>No students yet. Paste your class list above.</p>');
@@ -1788,6 +1796,10 @@ async function showClass(c){
     $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id), X.tests.filter(t=>t.student_id===s.id)); });
     $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
     $$('[data-rm]').forEach(b=>b.onclick=async()=>{ const s=st.find(x=>x.id===b.dataset.rm); if(confirm(`Remove ${s.name}? Their past workouts stay in the results.`)){ try{ await Store.tRemoveStudent(S.teacher, s.id); load(); }catch(e){ fail('Could not remove', e); } } });
+    $$('[data-gender]').forEach(sel=>sel.onchange=async()=>{
+      try{ await Store.tSetGender(S.teacher, sel.dataset.gender, sel.value); const x = st.find(y=>y.id===sel.dataset.gender); if(x) x.gender = sel.value || null; $('#gcount').outerHTML = genderCounts(st); toast('Saved'); }
+      catch(e){ fail('Could not save', e); }
+    });
     $$('[data-move]').forEach(sel=>sel.onchange=async()=>{
       const s = st.find(x=>x.id===sel.dataset.move), to = S.tclasses.find(k=>k.id===sel.value);
       if(!to) return;
@@ -1797,6 +1809,10 @@ async function showClass(c){
     });
   }
   load();
+}
+function genderCounts(st){
+  const m = st.filter(s=>s.gender==='M').length, f = st.filter(s=>s.gender==='F').length, n = st.length - m - f;
+  return `<p class="muted small" id="gcount">${m} male, ${f} female${n ? `, ${n} not set` : ''}. Set gender with the list in each row, or import it from your file.</p>`;
 }
 // Challenge workout results for every student of a class: who did it, their best score, and each exercise
 function planResults(st, ss, P){
@@ -1831,6 +1847,7 @@ const HEAD_RX = {  // column headings we recognise, in English and French (accen
   last: /^(last ?names?|surnames?|family ?names?|noms? de famille|noms?|last)$/,
   full: /^(full ?names?|names?|students?|student ?names?|pupils?|pupil ?names?|learners?|learner ?names?|eleves?|nom complet|noms? (et )?prenoms?|prenoms? (et )?noms?)$/,
   year: /^(year|years|year ?group|year ?level|yr|yr ?group|grade|grade ?level|niveau)$/,
+  gender: /^(gender|genders|sex|sexe|genre|m f|f m|boy girl|male female)$/,
   cls: /^(class|classes|class ?name|form|forms|form ?group|form ?class|tutor ?group|tutor|reg ?group|registration ?group|groups?|groupes?|classes?|sections?|homeroom|division)$/
 };
 // Recognise a form column from its values when the heading is unusual: 10C, 10 C, 10-C, Y10C, 10/2
@@ -1890,12 +1907,14 @@ function imDetect(initial){
   const base = !initial && IM.sheets.includes(IM.sheet) ? IM.sheet : IM.sheets[0];
   const rows = sheetRows(base), h = detectHeader(rows), at = k => h.kinds.indexOf(k);
   const fi = at('first'), la = at('last'), fu = at('full'), cl0 = at('cls');
+  let ge = at('gender');
   let yr = at('year'), cl = cl0;
   const width = Math.max(1, ...rows.slice(0, 50).map(r=>r.length)), start = h.row + 1;
   // Prefer a column whose values look like forms (10C) over a class column that only holds year groups
   const formCol = Array.from({length:width}, (_,i)=>i).find(i=>![fi, la, fu].includes(i) && colShare(rows, start, i, FORM_RX) >= 0.8);
   if(formCol !== undefined && (cl < 0 || (colShare(rows, start, cl, FORM_RX) < 0.8 && colShare(rows, start, cl, YEARISH_RX) >= 0.8))) cl = formCol;
   if(yr < 0 && cl0 >= 0 && cl0 !== cl && colShare(rows, start, cl0, YEARISH_RX) >= 0.8) yr = cl0;   // that column gives the year group instead
+  if(ge < 0){ const g = Array.from({length:width}, (_,i)=>i).find(i=>![fi, la, fu, cl, yr].includes(i) && (()=>{ const v = rows.slice(start, start+300).map(r=>String(r[i] ?? '').trim()).filter(Boolean); return v.length && v.filter(x=>normGender(x)).length >= v.length*0.9; })()); if(g !== undefined) ge = g; }
   if(initial) IM.sheet = IM.sheets.length>1 && cl<0 ? '*' : base;   // several sheets and no class column: one sheet per class
   IM.hasHeader = h.row >= 0;
   const head = h.row>=0 ? rows[h.row] : [], sample = rows[h.row+1] || [];
@@ -1906,7 +1925,8 @@ function imDetect(initial){
     full: fu>=0 ? fu : la>=0 ? la : fi>=0 ? fi : 0,
     first: Math.max(fi, 0), last: Math.max(la, 0), order:'fl',
     cls: cl>=0 ? 'col:'+cl : IM.preset ? 'into:'+IM.preset : IM.sheet==='*' ? 'sheet' : 'new',
-    year: yr>=0 ? 'col:'+yr : 'guess'   // year group of new classes: a Year column, or worked out from names like 10C
+    year: yr>=0 ? 'col:'+yr : 'guess',   // year group of new classes: a Year column, or worked out from names like 10C
+    gender: ge>=0 ? 'col:'+ge : ''
   };
 }
 function imRender(){
@@ -1933,6 +1953,8 @@ function imRender(){
       <option value="guess" ${m.year==='guess'?'selected':''}>Work it out from the class name (10C is Year 10)</option>
       ${IM.cols.map((c,i)=>`<option value="col:${i}" ${m.year==='col:'+i?'selected':''}>From ${esc(c)}</option>`).join('')}
       <option value="" ${m.year===''?'selected':''}>Leave empty</option></select></label>`}
+    <label class="field"><span>Gender (optional)</span><select id="imGe"><option value="">No gender column</option>
+      ${IM.cols.map((c,i)=>`<option value="col:${i}" ${m.gender==='col:'+i?'selected':''}>From ${esc(c)}</option>`).join('')}</select></label>
     <label class="field" style="max-width:340px;margin:0"><span>Weekly goal for new classes</span>${goalSelect('imG', IM.goal)}</label></div>`;
   const on = (id, ev, fn) => { const el = $('#'+id); if(el) el[ev] = fn; };
   on('imS', 'onchange', e => { IM.sheet = e.target.value; imDetect(false); imRender(); });
@@ -1944,6 +1966,7 @@ function imRender(){
   on('imO', 'onchange', e => { m.order = e.target.value; imPreview(); });
   on('imC', 'onchange', e => { m.cls = e.target.value; imRender(); });
   on('imY', 'onchange', e => { m.year = e.target.value; IM.years = {}; imPreview(); });
+  on('imGe', 'onchange', e => { m.gender = e.target.value; imPreview(); });
   on('imN', 'oninput', e => { IM.newName = e.target.value; imPreview(); });
   on('imG', 'onchange', e => { IM.goal = +e.target.value; });
   imPreview();
@@ -1959,7 +1982,7 @@ function imRows(){
         ? (m.order==='lf' ? [cell(m.last), cell(m.first)] : [cell(m.first), cell(m.last)]).filter(Boolean).join(' ')
         : cell(m.full);
       out.push({name, cls: m.cls.startsWith('col:') ? cell(+m.cls.slice(4)) : m.cls==='sheet' ? sn.trim() : '',
-        year: m.year.startsWith('col:') ? cell(+m.year.slice(4)) : ''});
+        year: m.year.startsWith('col:') ? cell(+m.year.slice(4)) : '', gender: m.gender.startsWith('col:') ? normGender(cell(+m.gender.slice(4))) : null});
     }
   }
   return out;
@@ -1973,9 +1996,9 @@ function imGroups(){
     if(!fixed && m.cls!=='new' && !label){ noClass++; continue; }
     const key = fixed ? 'id:'+fixed.id : m.cls==='new' ? 'new' : 'n:'+norm(label);
     let g = groups.get(key);
-    if(!g){ g = {key, label, fixed, names:[], seen:new Set(), year:''}; groups.set(key, g); }
+    if(!g){ g = {key, label, fixed, names:[], genders:[], seen:new Set(), year:''}; groups.set(key, g); }
     if(!g.year && r.year) g.year = normYear(r.year);
-    if(!g.seen.has(norm(r.name))){ g.seen.add(norm(r.name)); g.names.push(r.name); }
+    if(!g.seen.has(norm(r.name))){ g.seen.add(norm(r.name)); g.names.push(r.name); g.genders.push(r.gender); }
   }
   return {groups:[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})), noName, noClass};
 }
@@ -2002,7 +2025,7 @@ function imPreview(){
     ${big.length ? `<p class="warn"><b>Large class:</b> ${big.map(g=>`${esc(g.label || 'the new class')} would have ${g.names.length} students`).join(', ')}. Students pick their name from a list, so give each form its own class: choose your form column (like 10C) under Class above.</p>` : ''}
     <div class="clist">${groups.map(g=>{ const d = imDest(g), mv = movers(g); if(d==='new') IM.codes[g.key] ||= genCode();
       return `<div class="panel">
-        <label class="check" style="margin:0 0 8px"><input type="checkbox" data-inc="${esc(g.key)}" ${imIncluded(g)?'checked':''}> <span><b>${esc(g.label || 'New class')}</b> <span class="muted">${g.names.length} student${g.names.length===1?'':'s'}</span></span></label>
+        <label class="check" style="margin:0 0 8px"><input type="checkbox" data-inc="${esc(g.key)}" ${imIncluded(g)?'checked':''}> <span><b>${esc(g.label || 'New class')}</b> <span class="muted">${g.names.length} student${g.names.length===1?'':'s'}${IM.map.gender ? `: ${g.genders.filter(x=>x==='M').length} male, ${g.genders.filter(x=>x==='F').length} female` : ''}</span></span></label>
         ${mv.length ? `<p class="small" style="margin:0 0 10px">${mv.length} already in ${fromText(mv)}</p>` : ''}
         ${g.fixed ? '' : `<label class="field"><span class="small">Import into</span><select data-dest="${esc(g.key)}">
             <option value="new" ${d==='new'?'selected':''}>A new class${g.label ? ` called ${esc(g.label)}` : ''}</option>
@@ -2057,11 +2080,10 @@ async function imImport(){
         if(mv.length){
           moved += await Store.tMoveStudents(S.teacher, id, mv.map(m=>m.id));
           mv.forEach(m=>{ IM.byName.get(norm(m.name))[0].class_id = id; });   // so a retry sees them in their new class
-          const gone = new Set(mv.map(m=>norm(m.name)));
-          names = names.filter(n=>!gone.has(norm(n)));
         }
       }
-      added += await Store.tAddStudents(S.teacher, id, names); total += g.names.length;
+      // students just moved here are skipped by name, but get their gender filled in from the file
+      added += await Store.tAddStudents(S.teacher, id, names, IM.map.gender ? g.genders : undefined); total += g.names.length;
     }
   }catch(e){
     btn.disabled = false; btn.textContent = 'Try again';
@@ -2087,6 +2109,7 @@ async function showBoard(){
           <option value="week">This week</option><option value="4w">Last 4 weeks</option>
           <option value="plan">Challenge workout</option><option value="all">All time</option></select></label>
         <label class="field"><span>Find a student</span><input id="bQ" placeholder="Type part of a name" autocomplete="off"></label></div>
+      <label class="field" style="max-width:340px"><span>Gender</span><select id="bG"><option value="">All</option><option value="M">Male</option><option value="F">Female</option><option value="-">Not set</option></select></label>
       <label class="check" style="margin:0"><input type="checkbox" id="bN"> Only students with nothing done in this period</label>
     </div>
     <div id="bOut" class="muted" style="margin-top:14px">Loading every class…</div>`);
@@ -2097,7 +2120,7 @@ async function showBoard(){
     per = await Promise.all(classes.map(c=>Promise.all([Store.tSessions(S.teacher, c.id), Store.tClassExtras(S.teacher, c.id)])));
   }catch(e){ if(isExpired(e)) return logout(e.message); $('#bOut').textContent = 'Could not load: '+e.message; return; }
   BD = {classes, students, data:new Map(classes.map((c,i)=>[c.id, {ss:per[i][0], plan:per[i][1].plan, tests:per[i][1].tests}])),
-        f:{...(BD?.f || {year:'', cls:'', period:'week', q:'', none:false})}};
+        f:{gender:'', ...(BD?.f || {year:'', cls:'', period:'week', q:'', none:false})}};
   const years = [...new Set(classes.map(c=>c.year_group || NO_YEAR))].sort((a,b)=>a===NO_YEAR?1:b===NO_YEAR?-1:a.localeCompare(b, undefined, {numeric:true}));
   $('#bY').innerHTML = `<option value="">All year groups</option>` + years.map(y=>`<option value="${esc(y)}">${esc(y)}</option>`).join('');
   const fillClasses = () => {
@@ -2111,6 +2134,7 @@ async function showBoard(){
   $('#bP').onchange = e => { BD.f.period = e.target.value; renderBoard(); };
   $('#bQ').oninput = e => { BD.f.q = e.target.value; renderBoard(); };
   $('#bN').onchange = e => { BD.f.none = e.target.checked; renderBoard(); };
+  $('#bG').value = BD.f.gender; $('#bG').onchange = e => { BD.f.gender = e.target.value; renderBoard(); };
   renderBoard();
 }
 function boardRows(){
@@ -2118,7 +2142,8 @@ function boardRows(){
   const from = f.period==='week' ? weekStart(Date.now()) : f.period==='4w' ? Date.now() - 28*864e5 : 0;
   const cls = classes.filter(c=>(!f.year || (c.year_group || NO_YEAR)===f.year) && (!f.cls || c.id===f.cls));
   const byId = new Map(cls.map(c=>[c.id, c]));
-  return students.filter(s=>byId.has(s.class_id) && (!f.q || norm(s.name).includes(norm(f.q)))).map(s=>{
+  return students.filter(s=>byId.has(s.class_id) && (!f.q || norm(s.name).includes(norm(f.q)))
+      && (!f.gender || (f.gender==='-' ? !s.gender : s.gender===f.gender))).map(s=>{
     const c = byId.get(s.class_id), D = data.get(c.id), mine = D.ss.filter(x=>x.student_id===s.id);
     const best = D.plan ? bestOnPlan(mine, D.plan).get(s.id) : null;
     const inPeriod = f.period==='plan' ? (best ? [best] : []) : mine.filter(x=>new Date(x.created_at).getTime() >= from);
@@ -2146,8 +2171,8 @@ function renderBoard(){
     ${byClass.length > 1 && !f.none ? `<h2>By class</h2><div class="tbl-wrap panel"><table><thead><tr><th>Class</th><th>Students</th><th>${plan?'Did the challenge':'Active'}</th><th>Points ${label}</th><th>Points per student</th></tr></thead><tbody>
       ${byClass.sort((a,b)=>b.points/b.size - a.points/a.size).map(x=>`<tr><td><button class="link" data-bcls="${x.c.id}">${esc(x.c.name)}</button></td><td>${x.size}</td><td>${x.active} (${Math.round(x.active/x.size*100)}%)</td><td>${num(x.points)}</td><td><b>${num(Math.round(x.points/x.size))}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
     <div class="between"><h2>Students</h2><button class="btn ghost small" id="bDl">Download this view (.xlsx)</button></div>
-    <div class="tbl-wrap panel"><table><thead><tr><th>#</th><th>Student</th><th>Class</th><th>Points ${label}</th><th>${plan ? 'Challenge' : 'Workouts'}</th><th>Rank</th><th>Average level</th><th>Challenge workout</th><th>Last workout</th></tr></thead><tbody>
-    ${rows.map((r,i)=>`<tr${r.n ? '' : ' class="muted"'}><td>${r.n ? i+1 : ''}</td><td><button class="link" data-bst="${r.s.id}">${esc(r.s.name)}</button></td><td>${esc(r.c.name)}</td>
+    <div class="tbl-wrap panel"><table><thead><tr><th>#</th><th>Student</th><th>Gender</th><th>Class</th><th>Points ${label}</th><th>${plan ? 'Challenge' : 'Workouts'}</th><th>Rank</th><th>Average level</th><th>Challenge workout</th><th>Last workout</th></tr></thead><tbody>
+    ${rows.map((r,i)=>`<tr${r.n ? '' : ' class="muted"'}><td>${r.n ? i+1 : ''}</td><td><button class="link" data-bst="${r.s.id}">${esc(r.s.name)}</button></td><td>${GENDER_LABEL[r.s.gender] || ''}</td><td>${esc(r.c.name)}</td>
       <td><b>${r.n ? num(r.points) : '0'}</b>${flagTag(r.list.flatMap(flagsOf))}</td><td>${plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n}</td><td>${(k=>`<span class="lvtag" style="${lc(k.l)}">${k.name}</span>`)(rankOf(sum(r.mine.map(pointsOf))))}</td><td>${r.lvl}</td>
       <td>${!r.D.plan ? '<span class="muted">none set</span>' : r.best ? `Done, ${num(pointsOf(r.best))} pts` : '<b>Not done</b>'}</td>
       <td>${r.last ? fmtDate(r.last) : '<span class="muted">never</span>'}</td></tr>`).join('')}</tbody></table></div>`;
@@ -2156,12 +2181,12 @@ function renderBoard(){
     showTeacherStudent(r.c, {id:r.s.id, name:r.s.name}, r.mine, (r.D.tests||[]).filter(t=>t.student_id===r.s.id), showBoard); });
   if($('#bDl')) $('#bDl').onclick = () => {
     if(!window.XLSX) return toast('The Excel library did not load. Check your internet connection and reload.');
-    const H = ['Rank','Student','Class','Year group',`Points ${label}`, plan ? 'Challenge done' : 'Workouts','Average level','Challenge workout','Last workout'];
-    const data = rows.map((r,i)=>({'Rank':r.n?i+1:'','Student':r.s.name,'Class':r.c.name,'Year group':r.c.year_group||'',[`Points ${label}`]:r.points,
+    const H = ['Rank','Student','Gender','Class','Year group',`Points ${label}`, plan ? 'Challenge done' : 'Workouts','Average level','Challenge workout','Last workout'];
+    const data = rows.map((r,i)=>({'Rank':r.n?i+1:'','Student':r.s.name,'Gender':GENDER_LABEL[r.s.gender]||'','Class':r.c.name,'Year group':r.c.year_group||'',[`Points ${label}`]:r.points,
       [plan ? 'Challenge done' : 'Workouts']: plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n,'Average level':r.lvl,
       'Challenge workout':!r.D.plan ? '' : r.best ? `Done, ${pointsOf(r.best)} pts` : 'Not done','Last workout':r.last?fmtDate(r.last):''}));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, sheet(data, H), 'Results');
-    XLSX.writeFile(wb, `Results ${f.cls ? fileSafe(BD.classes.find(c=>c.id===f.cls).name) : f.year || 'all classes'} ${label}.xlsx`);
+    XLSX.writeFile(wb, `Results ${f.gender==='M' ? 'male ' : f.gender==='F' ? 'female ' : ''}${f.cls ? fileSafe(BD.classes.find(c=>c.id===f.cls).name) : f.year || 'all classes'} ${label}.xlsx`);
   };
 }
 
