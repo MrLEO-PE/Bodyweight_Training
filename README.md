@@ -7,7 +7,10 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 ## What students get
 
 - **Workout builder:** 8 to 12 exercises across Legs, Upper body, Core, Cardio and Balance, with 30, 40 or 45 s work, rest time and 1 to 3 rounds.
-- **Timer:** full-screen with beeps, a "switch sides" signal on one-sided exercises, and score logging during rest. The screen stays awake.
+- **Timer:** full-screen with beeps. Exercises cannot be skipped, only rests ("Skip rest"), so every exercise gets a score.
+- **Points and class leaderboard:** 1 rep = 1 point, 1 second held = 1 point. Students see their points after each workout and a class leaderboard for the challenge workout (best try counts) and for the week.
+- **How it works:** a step-by-step tutorial with screenshots (images in [tutorial/](tutorial/)), open from the home page and the student page.
+- **Timer details:** full-screen with beeps, a "switch sides" signal on one-sided exercises, and score logging during rest. The screen stays awake.
 - **Progress:** a weekly goal set by the teacher, a streak of weeks with the goal reached, a chart of average level over time, personal bests, and a table of their current level for each movement.
 - **Challenge:** a movement is marked **Ready for Level N** when:
   - holds: the student held the full time in every round in their last two workouts at that level
@@ -40,6 +43,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
   - Choose whole year groups (forms added later join automatically), single forms, or both.
   - The card shows each form's part of the total, and students see their own form highlighted.
+- **Challenge results by student:** on each class page, a table ranks every student by points, shows who has not done the challenge, and gives the level and score of each exercise. It is also a sheet in the Excel export.
 - **Fitness checks:** open a check for a class with a name such as "Start of Term 1" and close it when done. The class page shows each student's first and latest results and the change.
 - **Demo videos:** paste your own video link for any of the 80 exercises. Without one, students get a YouTube search.
 - Excel export per class (Students, Progress, Fitness checks, Workouts, Exercise log) or one file for all classes

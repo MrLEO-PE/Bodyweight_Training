@@ -542,6 +542,30 @@ begin
                                and ch.ends_on >= current_date - 14), '[]'::jsonb));
 end $$;
 
+-- Class leaderboard for a student. Points: 1 rep = 1 point, 1 second held = 1 point.
+-- 'plan': best score per student on the class's current challenge workout.
+-- 'week': all points since Monday.
+create or replace function public.bw_class_board(p_token text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); cid uuid; pl uuid; wk timestamptz := date_trunc('week', now());
+begin
+  select s.class_id into cid from bw_students s where s.id = sid;
+  select p.id into pl from bw_plans p where p.class_id = cid and p.active order by p.created_at desc limit 1;
+  return jsonb_build_object(
+    'class_size', (select count(*) from bw_students s where s.class_id = cid),
+    'plan', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'points', x.pts) order by x.pts desc, s.name)
+                        from bw_students s
+                        join (select student_id, max(total_reps + total_hold_sec) as pts from bw_sessions
+                               where pl is not null and plan_id = pl group by student_id) x on x.student_id = s.id
+                       where s.class_id = cid), '[]'::jsonb),
+    'week', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'points', x.pts, 'workouts', x.n) order by x.pts desc, s.name)
+                        from bw_students s
+                        join (select student_id, sum(total_reps + total_hold_sec) as pts, count(*) as n from bw_sessions
+                               where class_id = cid and created_at >= wk group by student_id) x on x.student_id = s.id
+                       where s.class_id = cid), '[]'::jsonb));
+end $$;
+
 create or replace function public.bw_add_test(p_token text, p_r jsonb)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
