@@ -26,8 +26,12 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - Classes or forms (such as 10C) with a join code, a weekly goal (1 to 7 workouts) and a **year group** (such as Year 10). The year group fills itself in from names like 10C, Y10 or Year 10. Classes are listed by year group, for teachers and students.
 - **Import students from a file:** Excel (.xlsx, .xls), LibreOffice (.ods), CSV, or Google Sheets downloaded as .xlsx.
   - It finds the name, form/class and year columns, in English or French headings, and handles one sheet per class.
+  - It also recognises a form column from its values (10C, 10-C, 10/2), whatever the heading.
   - It can create new classes with a join code, and names already in a class are skipped.
+  - Students already in another class are moved instead of duplicated. For example, a file with a form column splits a 170-student "Year 10" class into 10A, 10B, 10C… Their PIN, workouts and fitness checks go with them.
+  - It warns before creating a class of more than 60 students, since students pick their name from that class's list.
   - The file is read on the teacher's device: only names and classes are saved.
+- **Move a student** to another class from the class page, for example when they change form. Their PIN and history go with them.
 - Or paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
 - A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
 - **Workout of the week** per class: build it with the same builder, add a message, and see how many students have done it.

@@ -430,6 +430,36 @@ begin
   return n;
 end $$;
 
+-- Every student in every class, so an import can find students who are already in another class
+create or replace function public.bw_t_all_students(p_token text)
+returns table (id uuid, name text, class_id uuid)
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return query select s.id, s.name, s.class_id from bw_students s;
+end $$;
+
+-- Move students to another class (for example from 'Year 10' into their form 10C).
+-- Their PIN, workouts and fitness checks go with them. A student whose name is already
+-- in the target class is left where they are.
+create or replace function public.bw_t_move_students(p_token text, p_to uuid, p_ids uuid[]) returns int
+language plpgsql security definer set search_path = public, extensions as $$
+declare cname text; moved uuid[];
+begin
+  perform bw__teacher(p_token);
+  select k.name into cname from bw_classes k where k.id = p_to;
+  if cname is null then raise exception 'Class not found.'; end if;
+  with mv as (
+    update bw_students s set class_id = p_to
+     where s.id = any(coalesce(p_ids, '{}')) and s.class_id <> p_to
+       and not exists (select 1 from bw_students t where t.class_id = p_to and lower(t.name) = lower(s.name))
+    returning s.id)
+  select coalesce(array_agg(mv.id), '{}') into moved from mv;
+  update bw_sessions set class_id = p_to, class_name = cname where student_id = any(moved);
+  update bw_tests set class_id = p_to where student_id = any(moved);
+  return cardinality(moved);
+end $$;
+
 create or replace function public.bw_t_reset_pin(p_token text, p_student_id uuid) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin

@@ -186,6 +186,7 @@ fieldset.plain legend{font-weight:600;margin-bottom:6px;padding:0}
 .forms{display:flex;flex-wrap:wrap;gap:2px 18px;padding-left:26px}
 .forms .check{margin:0 0 6px}
 .yearhead{font-family:var(--display);font-weight:700;font-size:1.2rem;margin:18px 0 8px;color:var(--muted)}
+select.mv{width:auto;padding:.3em .5em;font-size:.9rem;border-radius:999px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -437,6 +438,8 @@ function makeCloud(){
     tStudents: (tok, cid) => rpc('bw_t_students', {p_token:tok, p_class_id:cid}),
     tAddStudents: (tok, cid, names) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names}),
     tResetPin: (tok, id) => rpc('bw_t_reset_pin', {p_token:tok, p_student_id:id}),
+    tAllStudents: tok => rpc('bw_t_all_students', {p_token:tok}),
+    tMoveStudents: (tok, to, ids) => rpc('bw_t_move_students', {p_token:tok, p_to:to, p_ids:ids}),
     tRemoveStudent: (tok, id) => rpc('bw_t_remove_student', {p_token:tok, p_student_id:id}),
     tSessions: (tok, cid) => rpc('bw_t_sessions', {p_token:tok, p_class_id:cid}),
     studentExtras: tok => rpc('bw_student_extras', {p_token:tok}),
@@ -495,6 +498,18 @@ const Local = {
     this._save(d); return n;
   },
   async tResetPin(tok, id){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.pin=null; this._save(d); },
+  async tAllStudents(tok){ return this._t(tok).students.map(s=>({id:s.id, name:s.name, class_id:s.class_id})); },
+  async tMoveStudents(tok, to, ids){
+    const d=this._t(tok), c=d.classes.find(x=>x.id===to); if(!c) throw new Error('Class not found.');
+    const taken = new Set(d.students.filter(s=>s.class_id===to).map(s=>norm(s.name))); let n=0;
+    d.students.forEach(s=>{
+      if(!ids.includes(s.id) || s.class_id===to || taken.has(norm(s.name))) return;
+      s.class_id=to; taken.add(norm(s.name)); n++;
+      d.sessions.forEach(x=>{ if(x.student_id===s.id){ x.class_id=to; x.class_name=c.name; } });
+      (d.tests||[]).forEach(t=>{ if(t.student_id===s.id) t.class_id=to; });
+    });
+    this._save(d); return n;
+  },
   async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
   _plan(d, cid){ const p=(d.plans||[]).filter(x=>x.class_id===cid && x.active).sort(newestFirst)[0]; return p ? {...p} : null; },
@@ -1370,7 +1385,7 @@ async function showClass(c){
   };
   async function load(){
     let st, ss, X;
-    try{ [st, ss, X] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id), Store.tClassExtras(S.teacher, c.id)]); }
+    try{ [st, ss, X, S.tclasses] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id), Store.tClassExtras(S.teacher, c.id), Store.tClasses(S.teacher)]); }
     catch(e){ if(isExpired(e)) return logout(e.message); $('#studs').textContent = $('#plan').textContent = $('#fitp').textContent = 'Could not load: '+e.message; return; }
     const goal = c.weekly_goal||3;
 
@@ -1406,18 +1421,28 @@ async function showClass(c){
     };
 
     // Students and workouts
-    $('#studs').innerHTML = st.length ? `<table><thead><tr><th>Name</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
+    const others = byYear(S.tclasses.filter(k=>k.id!==c.id));
+    const moveSel = s => others.length ? `<select class="mv" data-move="${s.id}" aria-label="Move ${esc(s.name)} to another class"><option value="">Move to…</option>${others.map(([y, cs])=>`<optgroup label="${esc(y)}">${cs.map(k=>`<option value="${k.id}">${esc(k.name)}</option>`).join('')}</optgroup>`).join('')}</select>` : '';
+    $('#studs').innerHTML = (st.length > BIG_CLASS ? `<p class="warn" style="max-width:none"><b>${st.length} students in one class.</b> Students pick their name from this list, so give each form its own class. Use <b>Import from a file</b> above and choose your form column (like 10C): students already here are moved into their form with their PIN and workouts. When this class is empty, delete it.</p>` : '')
+      + (st.length ? `<table><thead><tr><th>Name</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
       ${st.map(s=>{ const mine=ss.filter(x=>x.student_id===s.id), w=weekStats(mine,goal), A=analyse(mine);
         return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
         <td>${mine.length?avgLvl(mine[0]):''}</td><td>${mine.length?readyCount(A):''}</td><td>${mine[0]?fmtDate(mine[0].created_at):''}</td><td>${s.has_pin?'Set':'Not set'}</td>
-        <td class="actions">${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
-      : '<p>No students yet. Paste your class list above.</p>';
+        <td class="actions">${moveSel(s)}${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
+      : '<p>No students yet. Paste your class list above.</p>');
     $('#sess').innerHTML = ss.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th><th>Minutes</th></tr></thead><tbody>
       ${ss.map(s=>`<tr><td>${fmtDate(s.created_at)}</td><td>${fmtTime(s.created_at)}</td><td>${esc(s.student_name)}${s.plan_id?' <em class="tag">Set workout</em>':''}</td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${Math.round(s.duration_sec/60)}</td></tr>`).join('')}</tbody></table>`
       : '<p>No workouts logged yet.</p>';
     $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id), X.tests.filter(t=>t.student_id===s.id)); });
     $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
     $$('[data-rm]').forEach(b=>b.onclick=async()=>{ const s=st.find(x=>x.id===b.dataset.rm); if(confirm(`Remove ${s.name}? Their past workouts stay in the results.`)){ try{ await Store.tRemoveStudent(S.teacher, s.id); load(); }catch(e){ fail('Could not remove', e); } } });
+    $$('[data-move]').forEach(sel=>sel.onchange=async()=>{
+      const s = st.find(x=>x.id===sel.dataset.move), to = S.tclasses.find(k=>k.id===sel.value);
+      if(!to) return;
+      if(!confirm(`Move ${s.name} to ${to.name}? Their PIN, workouts and fitness checks move with them.`)){ sel.value = ''; return; }
+      try{ const n = await Store.tMoveStudents(S.teacher, to.id, [s.id]); toast(n ? `${s.name} moved to ${to.name}` : `${to.name} already has a student called ${s.name}`); load(); }
+      catch(e){ fail('Could not move', e); }
+    });
   }
   load();
 }
@@ -1440,6 +1465,11 @@ const HEAD_RX = {  // column headings we recognise, in English and French (accen
   year: /^(year|years|year ?group|year ?level|yr|yr ?group|grade|grade ?level|niveau)$/,
   cls: /^(class|classes|class ?name|form|forms|form ?group|form ?class|tutor ?group|tutor|reg ?group|registration ?group|groups?|groupes?|classes?|sections?|homeroom|division)$/
 };
+// Recognise a form column from its values when the heading is unusual: 10C, 10 C, 10-C, Y10C, 10/2
+const FORM_RX = /^(?:y(?:ea)?r?\s*)?\d{1,2}\s*(?:[-.]?\s*[a-z]{1,3}|\/\s*\d{1,2})$/i;
+const YEARISH_RX = /^(?:y(?:ea)?r?\s*)?\d{1,2}$/i;   // 10, Y10, Year 10
+const colShare = (rows, start, i, rx) => { const v = rows.slice(start, start+300).map(r=>String(r[i] ?? '').trim()).filter(Boolean); return v.length ? v.filter(x=>rx.test(x)).length / v.length : 0; };
+const BIG_CLASS = 60;   // more names than this in one class is hard to pick from
 const genCode = () => { const A = 'abcdefghjkmnpqrstuvwxyz23456789', r = crypto.getRandomValues(new Uint32Array(6)); return Array.from(r, x=>A[x % A.length]).join(''); };
 let IM = null;
 const sheetRows = sn => XLSX.utils.sheet_to_json(IM.wb.Sheets[sn], {header:1, defval:'', blankrows:false, raw:false});
@@ -1463,10 +1493,12 @@ async function readSheetFile(file){
 }
 async function showImport(classId){
   if(!window.XLSX) return toast('The spreadsheet reader did not load. Check your internet connection and reload.');
-  let classes;
-  try{ classes = await Store.tClasses(S.teacher); }catch(e){ return fail('Could not load classes', e); }
+  let classes, everyone;
+  try{ [classes, everyone] = await Promise.all([Store.tClasses(S.teacher), Store.tAllStudents(S.teacher)]); }catch(e){ return fail('Could not load classes', e); }
   const back = classes.find(c=>c.id===classId) || null;
-  IM = {classes:classes.map(c=>({id:c.id, name:c.name, year_group:c.year_group})), back, preset:back?.id || null, include:{}, dest:{}, codes:{}, years:{}, goal:3, newName:''};
+  IM = {classes:classes.map(c=>({id:c.id, name:c.name, year_group:c.year_group})), back, preset:back?.id || null, include:{}, dest:{}, codes:{}, years:{}, goal:3, newName:'',
+    everyone, byName:new Map(), move:true};
+  everyone.forEach(s=>{ const k=norm(s.name); if(!IM.byName.has(k)) IM.byName.set(k, []); IM.byName.get(k).push(s); });
   setView(`<p><button class="btn ghost small" id="back">${back ? `Back to ${esc(back.name)}` : 'All classes'}</button></p>
     <h1>Import students</h1>
     <p>Choose an Excel (.xlsx or .xls), LibreOffice (.ods) or CSV file.${back ? ` Students go into ${esc(back.name)} unless you choose otherwise.` : ''}</p>
@@ -1488,11 +1520,16 @@ async function showImport(classId){
 function imDetect(initial){
   const base = !initial && IM.sheets.includes(IM.sheet) ? IM.sheet : IM.sheets[0];
   const rows = sheetRows(base), h = detectHeader(rows), at = k => h.kinds.indexOf(k);
-  const fi = at('first'), la = at('last'), fu = at('full'), yr = at('year'), cl = at('cls');
+  const fi = at('first'), la = at('last'), fu = at('full'), cl0 = at('cls');
+  let yr = at('year'), cl = cl0;
+  const width = Math.max(1, ...rows.slice(0, 50).map(r=>r.length)), start = h.row + 1;
+  // Prefer a column whose values look like forms (10C) over a class column that only holds year groups
+  const formCol = Array.from({length:width}, (_,i)=>i).find(i=>![fi, la, fu].includes(i) && colShare(rows, start, i, FORM_RX) >= 0.8);
+  if(formCol !== undefined && (cl < 0 || (colShare(rows, start, cl, FORM_RX) < 0.8 && colShare(rows, start, cl, YEARISH_RX) >= 0.8))) cl = formCol;
+  if(yr < 0 && cl0 >= 0 && cl0 !== cl && colShare(rows, start, cl0, YEARISH_RX) >= 0.8) yr = cl0;   // that column gives the year group instead
   if(initial) IM.sheet = IM.sheets.length>1 && cl<0 ? '*' : base;   // several sheets and no class column: one sheet per class
   IM.hasHeader = h.row >= 0;
   const head = h.row>=0 ? rows[h.row] : [], sample = rows[h.row+1] || [];
-  const width = Math.max(1, ...rows.slice(0, 50).map(r=>r.length));
   IM.cols = Array.from({length:width}, (_,i)=>{ const t=String(head[i]??'').trim(), s=String(sample[i]??'').trim(); return `Column ${XLSX.utils.encode_col(i)}${t ? ` (${t})` : s ? ` (e.g. ${s})` : ''}`; });
   IM.onlyPreset = !!IM.preset && cl>=0;   // from a class page with a class column: tick only that class
   IM.map = {
@@ -1576,22 +1613,35 @@ function imGroups(){
 const imDest = g => g.fixed ? g.fixed.id : IM.dest[g.key] ?? (IM.classes.find(c=>norm(c.name)===norm(g.label))?.id || 'new');
 const imIncluded = g => IM.include[g.key] ?? (!IM.onlyPreset || imDest(g)===IM.preset);
 const imYear = g => IM.years[g.key] ?? (IM.map.year==='' ? '' : g.year || guessYear(g.label));
+// Students in the file who are already in exactly one other class (for example all of 'Year 10'): they can be moved
+const imMovers = (g, dest) => g.names.flatMap(n=>{
+  const hits = IM.byName.get(norm(n)) || [];
+  if(hits.some(h=>h.class_id===dest)) return [];   // already in this class
+  return hits.length===1 ? [{name:n, id:hits[0].id, from:hits[0].class_id}] : [];
+});
+const className = id => IM.classes.find(c=>c.id===id)?.name || 'another class';
 function imPreview(){
   const box = $('#imPrev'), {groups, noName, noClass} = imGroups();
   if(!groups.length){ box.innerHTML = `<p class="muted" style="margin-top:12px">No names found with these settings. Check the columns above.</p>`; return; }
   const inc = groups.filter(imIncluded), total = sum(inc.map(g=>g.names.length));
   const skipped = [noName ? `${noName} row${noName===1?'':'s'} without a name` : '', noClass ? `${noClass} row${noClass===1?'':'s'} without a class` : ''].filter(Boolean);
+  const big = inc.filter(g=>g.names.length > BIG_CLASS);
+  const movers = g => imMovers(g, imDest(g)), anyMovers = inc.some(g=>movers(g).length);
+  const fromText = mv => Object.entries(mv.reduce((a,m)=>(a[m.from]=(a[m.from]||0)+1, a), {})).map(([id,n])=>`${esc(className(id))} (${n})`).join(', ');
   box.innerHTML = `<h2>Check before importing</h2>
     ${skipped.length ? `<p class="muted small">Skipped: ${skipped.join(', ')}.</p>` : ''}
-    <div class="clist">${groups.map(g=>{ const d = imDest(g); if(d==='new') IM.codes[g.key] ||= genCode();
+    ${big.length ? `<p class="warn"><b>Large class:</b> ${big.map(g=>`${esc(g.label || 'the new class')} would have ${g.names.length} students`).join(', ')}. Students pick their name from a list, so give each form its own class: choose your form column (like 10C) under Class above.</p>` : ''}
+    <div class="clist">${groups.map(g=>{ const d = imDest(g), mv = movers(g); if(d==='new') IM.codes[g.key] ||= genCode();
       return `<div class="panel">
         <label class="check" style="margin:0 0 8px"><input type="checkbox" data-inc="${esc(g.key)}" ${imIncluded(g)?'checked':''}> <span><b>${esc(g.label || 'New class')}</b> <span class="muted">${g.names.length} student${g.names.length===1?'':'s'}</span></span></label>
+        ${mv.length ? `<p class="small" style="margin:0 0 10px">${mv.length} already in ${fromText(mv)}</p>` : ''}
         ${g.fixed ? '' : `<label class="field"><span class="small">Import into</span><select data-dest="${esc(g.key)}">
             <option value="new" ${d==='new'?'selected':''}>A new class${g.label ? ` called ${esc(g.label)}` : ''}</option>
             ${IM.classes.map(c=>`<option value="${c.id}" ${d===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>
           ${d==='new' ? `<div class="row2"><label class="field"><span class="small">Class code for students</span><input data-code="${esc(g.key)}" value="${esc(IM.codes[g.key])}" autocomplete="off"></label>
             <label class="field"><span class="small">Year group</span><input data-yr="${esc(g.key)}" list="yearListIm" maxlength="40" value="${esc(imYear(g))}" placeholder="e.g. Year 10" autocomplete="off"></label></div>` : ''}`}
         <details><summary class="small">See the names</summary><p class="small" style="max-width:none">${g.names.map(esc).join(', ')}</p></details></div>`; }).join('')}</div>
+    ${anyMovers ? `<label class="check" style="margin-top:16px"><input type="checkbox" id="imMove" ${IM.move?'checked':''}> <span>Move students who are already in another class into their class above. Their PIN, workouts and fitness checks go with them.</span></label>` : ''}
     <p style="margin-top:16px"><button class="btn" id="imGo" ${total?'':'disabled'}>Import ${total} student${total===1?'':'s'} into ${inc.length} class${inc.length===1?'':'es'}</button></p>
     <p class="muted small">Names already in a class are skipped, so importing the same file twice is safe.</p>
     <datalist id="yearListIm">${yearOptions(IM.classes)}</datalist>`;
@@ -1599,6 +1649,7 @@ function imPreview(){
   box.querySelectorAll('[data-inc]').forEach(x=>x.onchange=()=>{ IM.include[x.dataset.inc] = x.checked; imPreview(); });
   box.querySelectorAll('[data-dest]').forEach(x=>x.onchange=()=>{ IM.dest[x.dataset.dest] = x.value; imPreview(); });
   box.querySelectorAll('[data-code]').forEach(x=>x.oninput=()=>{ IM.codes[x.dataset.code] = x.value; });
+  if($('#imMove')) $('#imMove').onchange = e => { IM.move = e.target.checked; };
   $('#imGo').onclick = imImport;
 }
 async function imImport(){
@@ -1609,7 +1660,8 @@ async function imImport(){
     if(String(IM.codes[g.key]||'').trim().length < 3) return toast(`The class code for ${g.label} needs at least 3 characters.`);
   }
   const btn = $('#imGo'); btn.disabled = true; btn.textContent = 'Importing…';
-  let added = 0, total = 0, made = 0;
+  let added = 0, moved = 0, total = 0, made = 0;
+  const left = new Set(IM.everyone.map(s=>s.class_id));   // classes that had students before
   try{
     for(const g of todo){
       let id = imDest(g);
@@ -1618,13 +1670,26 @@ async function imImport(){
         id = await Store.tAddClass(S.teacher, g.label, IM.codes[g.key].trim(), IM.goal, year);
         IM.classes.push({id, name:g.label, year_group:year||null}); IM.dest[g.key] = id; made++;   // a retry adds to this class instead of making another
       }
-      added += await Store.tAddStudents(S.teacher, id, g.names); total += g.names.length;
+      let names = g.names;
+      if(IM.move){
+        const mv = imMovers(g, id);
+        if(mv.length){
+          moved += await Store.tMoveStudents(S.teacher, id, mv.map(m=>m.id));
+          mv.forEach(m=>{ IM.byName.get(norm(m.name))[0].class_id = id; });   // so a retry sees them in their new class
+          const gone = new Set(mv.map(m=>norm(m.name)));
+          names = names.filter(n=>!gone.has(norm(n)));
+        }
+      }
+      added += await Store.tAddStudents(S.teacher, id, names); total += g.names.length;
     }
   }catch(e){
     btn.disabled = false; btn.textContent = 'Try again';
-    return fail(`Import stopped after ${added} student${added===1?'':'s'}`, e);
+    return fail(`Import stopped after ${added + moved} student${added + moved===1?'':'s'}`, e);
   }
-  toast(`${added} student${added===1?'':'s'} added${made ? ` in ${made} new class${made===1?'':'es'}` : ''}${total>added ? `. ${total-added} were already there` : ''}.`);
+  const emptied = [...left].filter(id=>!IM.everyone.some(s=>s.class_id===id)).map(className);
+  toast(`${added} student${added===1?'':'s'} added${moved ? `, ${moved} moved from another class` : ''}${made ? ` in ${made} new class${made===1?'':'es'}` : ''}`
+    + `${total>added+moved ? `. ${total-added-moved} were already there` : ''}.`
+    + `${emptied.length ? ` ${emptied.join(', ')} ${emptied.length===1?'is':'are'} now empty: you can delete ${emptied.length===1?'it':'them'}.` : ''}`);
   IM.back ? showClass(IM.back) : showTeacherHome();
 }
 
