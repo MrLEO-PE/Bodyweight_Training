@@ -24,7 +24,11 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 ## What teachers get
 
 - Classes with a join code and a weekly goal (1 to 7 workouts)
-- Paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
+- **Import students from a file:** Excel (.xlsx, .xls), LibreOffice (.ods), CSV, or Google Sheets downloaded as .xlsx.
+  - It finds the name and class columns, in English or French headings, and handles one sheet per class.
+  - It can create new classes with a join code, and names already in a class are skipped.
+  - The file is read on the teacher's device: only names and classes are saved.
+- Or paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
 - A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
 - **Workout of the week** per class: build it with the same builder, add a message, and see how many students have done it.
 - **Class challenges:** count workouts, reps or minutes across one or more classes between two dates, for example "Year 9: 1,000 workouts this half-term".

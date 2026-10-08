@@ -1206,7 +1206,8 @@ async function showTeacherHome(){
       <div class="row3"><label class="field"><span>Class name</span><input id="cn" placeholder="e.g. 9C"></label>
       <label class="field"><span>Class code</span><input id="cc" placeholder="Students type this to join"></label>
       <label class="field"><span>Weekly goal</span>${goalSelect('cg')}</label></div>
-      <button class="btn" id="add">Add class</button></div>
+      <div class="btns"><button class="btn" id="add">Add class</button><button class="btn ghost" id="imp">Import students from a file</button></div>
+      <p class="muted small" style="margin:6px 0 0">Import reads Excel, LibreOffice and CSV files, and Google Sheets downloaded as .xlsx. It can create the classes for you.</p></div>
     <div class="between"><h2>Your classes</h2><button class="btn ghost small" id="all">Download all classes (.xlsx)</button></div>
     <div id="list" class="muted">Loading…</div>
     <h2>Class challenges</h2>
@@ -1225,6 +1226,7 @@ async function showTeacherHome(){
     try{ await Store.tAddClass(S.teacher, name, code, +$('#cg').value); toast(`${name} added`); showTeacherHome(); }catch(e){ fail('Could not add the class', e); }
   };
   $('#all').onclick = downloadAll;
+  $('#imp').onclick = () => showImport();
   $('#chp').onclick = async () => {
     try{ await Store.tChangePin(S.teacher, $('#op').value, $('#np').value); $('#op').value=$('#np').value=''; toast('Teacher PIN changed.'); }
     catch(e){ fail('Could not change the PIN', e); }
@@ -1293,7 +1295,7 @@ async function showClass(c){
     <h2>Fitness check</h2><div id="fitp" class="muted">Loading…</div>
     <h2>Students</h2>
     <div class="panel"><label class="field"><span>Add students, one name per line</span><textarea id="names" rows="5" placeholder="Paste names from your class list"></textarea></label>
-      <button class="btn small" id="addn">Add students</button></div>
+      <div class="btns"><button class="btn small" id="addn">Add students</button><button class="btn ghost small" id="impc">Import from a file</button></div></div>
     <div id="studs" class="tbl-wrap muted" style="margin-top:12px">Loading…</div>
     <h2>Workouts</h2><div id="sess" class="tbl-wrap muted">Loading…</div>
     <details class="panel" style="margin-top:32px"><summary>Class settings</summary>
@@ -1308,8 +1310,10 @@ async function showClass(c){
     try{ await Store.tUpdateClass(S.teacher, c.id, code, goal); c.code=code; c.weekly_goal=goal; toast('Settings saved'); load(); }catch(e){ fail('Could not save', e); }
   };
   $('#del').onclick = async () => { if(confirm(`Delete ${c.name}, its students and all their workouts? This cannot be undone.`)){ try{ await Store.tDeleteClass(S.teacher, c.id); toast(`${c.name} deleted`); showTeacherHome(); }catch(e){ fail('Could not delete', e); } } };
+  $('#impc').onclick = () => showImport(c.id);
   $('#addn').onclick = async () => {
-    const names = $('#names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    // Pasting two spreadsheet columns (first name, last name) gives tab-separated cells: join them
+    const names = $('#names').value.split(/\r?\n/).map(s=>s.split('\t').map(x=>x.trim()).filter(Boolean).join(' ')).filter(Boolean);
     if(!names.length) return toast('Paste at least one name.');
     try{ const n = await Store.tAddStudents(S.teacher, c.id, names); toast(`${n} student${n===1?'':'s'} added`); $('#names').value=''; load(); }catch(e){ fail('Could not add students', e); }
   };
@@ -1373,6 +1377,191 @@ function showTeacherStudent(c, s, sessions, tests){
     <h2>Fitness checks</h2>${tests.length ? testTableHTML(tests) : '<p class="muted">No fitness checks yet.</p>'}`);
   wireCharts();
   $('#back').onclick = () => showClass(c);
+}
+
+/* ===== Import students from a spreadsheet (Excel, LibreOffice, CSV, Google Sheets as .xlsx) =====
+   The file is read in the browser. Only student names and class names are sent to the database. */
+const normH = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]+/g,' ').trim();
+const HEAD_RX = {  // column headings we recognise, in English and French (accents removed)
+  first: /^(first ?names?|given ?names?|forenames?|prenoms?|first)$/,
+  last: /^(last ?names?|surnames?|family ?names?|noms? de famille|noms?|last)$/,
+  full: /^(full ?names?|names?|students?|student ?names?|pupils?|pupil ?names?|learners?|learner ?names?|eleves?|nom complet|noms? (et )?prenoms?|prenoms? (et )?noms?)$/,
+  cls: /^(class|classes|class ?name|form|form ?group|tutor ?group|groups?|groupes?|classes?|sections?|homeroom|division|year ?group)$/
+};
+const genCode = () => { const A = 'abcdefghjkmnpqrstuvwxyz23456789', r = crypto.getRandomValues(new Uint32Array(6)); return Array.from(r, x=>A[x % A.length]).join(''); };
+let IM = null;
+const sheetRows = sn => XLSX.utils.sheet_to_json(IM.wb.Sheets[sn], {header:1, defval:'', blankrows:false, raw:false});
+function detectHeader(rows){
+  for(let i=0; i<Math.min(rows.length, 10); i++){
+    const kinds = rows[i].map(c=>{ const h=normH(c); return h ? Object.keys(HEAD_RX).find(k=>HEAD_RX[k].test(h)) || null : null; });
+    if(kinds.some(Boolean)) return {row:i, kinds};
+  }
+  return {row:-1, kinds:[]};
+}
+async function readSheetFile(file){
+  const buf = await file.arrayBuffer();
+  if(/\.(csv|tsv|txt)$/i.test(file.name)){
+    // CSV from Excel on Windows is often not UTF-8: fall back so accented names stay correct
+    let text;
+    try{ text = new TextDecoder('utf-8', {fatal:true}).decode(buf); }
+    catch(e){ text = new TextDecoder('windows-1252').decode(buf); }
+    return XLSX.read(text.replace(/^﻿/, ''), {type:'string', raw:true});
+  }
+  return XLSX.read(buf, {type:'array'});
+}
+async function showImport(classId){
+  if(!window.XLSX) return toast('The spreadsheet reader did not load. Check your internet connection and reload.');
+  let classes;
+  try{ classes = await Store.tClasses(S.teacher); }catch(e){ return fail('Could not load classes', e); }
+  const back = classes.find(c=>c.id===classId) || null;
+  IM = {classes:classes.map(c=>({id:c.id, name:c.name})), back, preset:back?.id || null, include:{}, dest:{}, codes:{}, goal:3, newName:''};
+  setView(`<p><button class="btn ghost small" id="back">${back ? `Back to ${esc(back.name)}` : 'All classes'}</button></p>
+    <h1>Import students</h1>
+    <p>Choose an Excel (.xlsx or .xls), LibreOffice (.ods) or CSV file.${back ? ` Students go into ${esc(back.name)} unless you choose otherwise.` : ''}</p>
+    <p class="muted small">From Google Sheets, first use File &gt; Download &gt; Microsoft Excel (.xlsx). The file is read on this device: only student names and class names are saved, never the other columns.</p>
+    <div class="panel"><label class="field" style="margin:0"><span>Spreadsheet file</span><input type="file" id="imf" accept=".xlsx,.xls,.ods,.csv,.tsv,.txt"></label></div>
+    <div id="imMap"></div><div id="imPrev"></div>`);
+  $('#back').onclick = () => back ? showClass(back) : showTeacherHome();
+  $('#imf').onchange = async () => {
+    const f = $('#imf').files[0]; if(!f) return;
+    try{ IM.wb = await readSheetFile(f); }
+    catch(e){ return toast('Could not read this file. Save it as .xlsx or .csv and try again.'); }
+    IM.file = f.name; IM.include = {}; IM.dest = {};
+    IM.sheets = IM.wb.SheetNames.filter(sn=>sheetRows(sn).length);
+    if(!IM.sheets.length){ $('#imMap').innerHTML = $('#imPrev').innerHTML = ''; return toast('This file looks empty.'); }
+    IM.newName = f.name.replace(/\.[^.]+$/, '');
+    imDetect(true); imRender();
+  };
+}
+function imDetect(initial){
+  const base = !initial && IM.sheets.includes(IM.sheet) ? IM.sheet : IM.sheets[0];
+  const rows = sheetRows(base), h = detectHeader(rows), at = k => h.kinds.indexOf(k);
+  const fi = at('first'), la = at('last'), fu = at('full'), cl = at('cls');
+  if(initial) IM.sheet = IM.sheets.length>1 && cl<0 ? '*' : base;   // several sheets and no class column: one sheet per class
+  IM.hasHeader = h.row >= 0;
+  const head = h.row>=0 ? rows[h.row] : [], sample = rows[h.row+1] || [];
+  const width = Math.max(1, ...rows.slice(0, 50).map(r=>r.length));
+  IM.cols = Array.from({length:width}, (_,i)=>{ const t=String(head[i]??'').trim(), s=String(sample[i]??'').trim(); return `Column ${XLSX.utils.encode_col(i)}${t ? ` (${t})` : s ? ` (e.g. ${s})` : ''}`; });
+  IM.onlyPreset = !!IM.preset && cl>=0;   // from a class page with a class column: tick only that class
+  IM.map = {
+    mode: fi>=0 && la>=0 ? 'firstlast' : 'full',
+    full: fu>=0 ? fu : la>=0 ? la : fi>=0 ? fi : 0,
+    first: Math.max(fi, 0), last: Math.max(la, 0), order:'fl',
+    cls: cl>=0 ? 'col:'+cl : IM.preset ? 'into:'+IM.preset : IM.sheet==='*' ? 'sheet' : 'new'
+  };
+}
+function imRender(){
+  const m = IM.map, colOpts = v => IM.cols.map((c,i)=>`<option value="${i}" ${i===v?'selected':''}>${esc(c)}</option>`).join('');
+  $('#imMap').innerHTML = `<div class="panel" style="margin-top:12px">
+    <div class="h3">${esc(IM.file)}</div>
+    ${IM.sheets.length>1 ? `<label class="field"><span>Sheet</span><select id="imS">${IM.sheets.map(s=>`<option value="${esc(s)}" ${s===IM.sheet?'selected':''}>${esc(s)}</option>`).join('')}<option value="*" ${IM.sheet==='*'?'selected':''}>All sheets</option></select></label>` : ''}
+    <label class="check"><input type="checkbox" id="imH" ${IM.hasHeader?'checked':''}> The first row has column headings</label>
+    <label class="field"><span>Student names are in</span><select id="imM">
+      <option value="full" ${m.mode==='full'?'selected':''}>One column with the full name</option>
+      <option value="firstlast" ${m.mode==='firstlast'?'selected':''}>Two columns: first name and last name</option></select></label>
+    ${m.mode==='full'
+      ? `<label class="field"><span>Name column</span><select id="imFu">${colOpts(m.full)}</select></label>`
+      : `<div class="row2"><label class="field"><span>First name column</span><select id="imFi">${colOpts(m.first)}</select></label>
+          <label class="field"><span>Last name column</span><select id="imLa">${colOpts(m.last)}</select></label></div>
+         <label class="field"><span>Write names as</span><select id="imO"><option value="fl" ${m.order==='fl'?'selected':''}>First name, then last name</option><option value="lf" ${m.order==='lf'?'selected':''}>Last name, then first name</option></select></label>`}
+    <label class="field"><span>Class</span><select id="imC">
+      ${IM.cols.map((c,i)=>`<option value="col:${i}" ${m.cls==='col:'+i?'selected':''}>From ${esc(c)}</option>`).join('')}
+      <option value="sheet" ${m.cls==='sheet'?'selected':''}>The sheet name (one sheet per class)</option>
+      ${IM.classes.map(c=>`<option value="into:${c.id}" ${m.cls==='into:'+c.id?'selected':''}>Everyone into ${esc(c.name)}</option>`).join('')}
+      <option value="new" ${m.cls==='new'?'selected':''}>Everyone into a new class</option></select></label>
+    ${m.cls==='new' ? `<label class="field"><span>New class name</span><input id="imN" maxlength="60" value="${esc(IM.newName)}"></label>` : ''}
+    <label class="field" style="max-width:340px;margin:0"><span>Weekly goal for new classes</span>${goalSelect('imG', IM.goal)}</label></div>`;
+  const on = (id, ev, fn) => { const el = $('#'+id); if(el) el[ev] = fn; };
+  on('imS', 'onchange', e => { IM.sheet = e.target.value; imDetect(false); imRender(); });
+  on('imH', 'onchange', e => { IM.hasHeader = e.target.checked; imPreview(); });
+  on('imM', 'onchange', e => { m.mode = e.target.value; imRender(); });
+  on('imFu', 'onchange', e => { m.full = +e.target.value; imPreview(); });
+  on('imFi', 'onchange', e => { m.first = +e.target.value; imPreview(); });
+  on('imLa', 'onchange', e => { m.last = +e.target.value; imPreview(); });
+  on('imO', 'onchange', e => { m.order = e.target.value; imPreview(); });
+  on('imC', 'onchange', e => { m.cls = e.target.value; imRender(); });
+  on('imN', 'oninput', e => { IM.newName = e.target.value; imPreview(); });
+  on('imG', 'onchange', e => { IM.goal = +e.target.value; });
+  imPreview();
+}
+function imRows(){
+  const out = [], m = IM.map;
+  for(const sn of IM.sheet==='*' ? IM.sheets : [IM.sheet]){
+    const rows = sheetRows(sn), h = IM.hasHeader ? Math.max(0, detectHeader(rows).row) : -1;
+    for(const r of rows.slice(h+1)){
+      if(!r.some(c=>String(c ?? '').trim())) continue;   // empty row
+      const cell = i => String(r[i] ?? '').replace(/\s+/g, ' ').trim();
+      const name = m.mode==='firstlast'
+        ? (m.order==='lf' ? [cell(m.last), cell(m.first)] : [cell(m.first), cell(m.last)]).filter(Boolean).join(' ')
+        : cell(m.full);
+      out.push({name, cls: m.cls.startsWith('col:') ? cell(+m.cls.slice(4)) : m.cls==='sheet' ? sn.trim() : ''});
+    }
+  }
+  return out;
+}
+function imGroups(){
+  const m = IM.map, fixed = m.cls.startsWith('into:') ? IM.classes.find(c=>c.id===m.cls.slice(5)) : null;
+  const groups = new Map(); let noName = 0, noClass = 0;
+  for(const r of imRows()){
+    if(!r.name){ noName++; continue; }
+    const label = fixed ? fixed.name : m.cls==='new' ? IM.newName.trim() : r.cls;
+    if(!fixed && m.cls!=='new' && !label){ noClass++; continue; }
+    const key = fixed ? 'id:'+fixed.id : m.cls==='new' ? 'new' : 'n:'+norm(label);
+    let g = groups.get(key);
+    if(!g){ g = {key, label, fixed, names:[], seen:new Set()}; groups.set(key, g); }
+    if(!g.seen.has(norm(r.name))){ g.seen.add(norm(r.name)); g.names.push(r.name); }
+  }
+  return {groups:[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})), noName, noClass};
+}
+const imDest = g => g.fixed ? g.fixed.id : IM.dest[g.key] ?? (IM.classes.find(c=>norm(c.name)===norm(g.label))?.id || 'new');
+const imIncluded = g => IM.include[g.key] ?? (!IM.onlyPreset || imDest(g)===IM.preset);
+function imPreview(){
+  const box = $('#imPrev'), {groups, noName, noClass} = imGroups();
+  if(!groups.length){ box.innerHTML = `<p class="muted" style="margin-top:12px">No names found with these settings. Check the columns above.</p>`; return; }
+  const inc = groups.filter(imIncluded), total = sum(inc.map(g=>g.names.length));
+  const skipped = [noName ? `${noName} row${noName===1?'':'s'} without a name` : '', noClass ? `${noClass} row${noClass===1?'':'s'} without a class` : ''].filter(Boolean);
+  box.innerHTML = `<h2>Check before importing</h2>
+    ${skipped.length ? `<p class="muted small">Skipped: ${skipped.join(', ')}.</p>` : ''}
+    <div class="clist">${groups.map(g=>{ const d = imDest(g); if(d==='new') IM.codes[g.key] ||= genCode();
+      return `<div class="panel">
+        <label class="check" style="margin:0 0 8px"><input type="checkbox" data-inc="${esc(g.key)}" ${imIncluded(g)?'checked':''}> <span><b>${esc(g.label || 'New class')}</b> <span class="muted">${g.names.length} student${g.names.length===1?'':'s'}</span></span></label>
+        ${g.fixed ? '' : `<div class="row2">
+          <label class="field"><span class="small">Import into</span><select data-dest="${esc(g.key)}">
+            <option value="new" ${d==='new'?'selected':''}>A new class${g.label ? ` called ${esc(g.label)}` : ''}</option>
+            ${IM.classes.map(c=>`<option value="${c.id}" ${d===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>
+          ${d==='new' ? `<label class="field"><span class="small">Class code for students</span><input data-code="${esc(g.key)}" value="${esc(IM.codes[g.key])}" autocomplete="off"></label>` : '<span></span>'}</div>`}
+        <details><summary class="small">See the names</summary><p class="small" style="max-width:none">${g.names.map(esc).join(', ')}</p></details></div>`; }).join('')}</div>
+    <p style="margin-top:16px"><button class="btn" id="imGo" ${total?'':'disabled'}>Import ${total} student${total===1?'':'s'} into ${inc.length} class${inc.length===1?'':'es'}</button></p>
+    <p class="muted small">Names already in a class are skipped, so importing the same file twice is safe.</p>`;
+  box.querySelectorAll('[data-inc]').forEach(x=>x.onchange=()=>{ IM.include[x.dataset.inc] = x.checked; imPreview(); });
+  box.querySelectorAll('[data-dest]').forEach(x=>x.onchange=()=>{ IM.dest[x.dataset.dest] = x.value; imPreview(); });
+  box.querySelectorAll('[data-code]').forEach(x=>x.oninput=()=>{ IM.codes[x.dataset.code] = x.value; });
+  $('#imGo').onclick = imImport;
+}
+async function imImport(){
+  const todo = imGroups().groups.filter(imIncluded);
+  for(const g of todo){
+    if(imDest(g)!=='new') continue;
+    if(!g.label) return toast('Type a name for the new class.');
+    if(String(IM.codes[g.key]||'').trim().length < 3) return toast(`The class code for ${g.label} needs at least 3 characters.`);
+  }
+  const btn = $('#imGo'); btn.disabled = true; btn.textContent = 'Importing…';
+  let added = 0, total = 0, made = 0;
+  try{
+    for(const g of todo){
+      let id = imDest(g);
+      if(id==='new'){
+        id = await Store.tAddClass(S.teacher, g.label, IM.codes[g.key].trim(), IM.goal);
+        IM.classes.push({id, name:g.label}); IM.dest[g.key] = id; made++;   // a retry adds to this class instead of making another
+      }
+      added += await Store.tAddStudents(S.teacher, id, g.names); total += g.names.length;
+    }
+  }catch(e){
+    btn.disabled = false; btn.textContent = 'Try again';
+    return fail(`Import stopped after ${added} student${added===1?'':'s'}`, e);
+  }
+  toast(`${added} student${added===1?'':'s'} added${made ? ` in ${made} new class${made===1?'':'es'}` : ''}${total>added ? `. ${total-added} were already there` : ''}.`);
+  IM.back ? showClass(IM.back) : showTeacherHome();
 }
 
 /* ===== Excel export ===== */
