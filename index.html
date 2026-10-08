@@ -186,6 +186,7 @@ fieldset.plain legend{font-weight:600;margin-bottom:6px;padding:0}
 .forms{display:flex;flex-wrap:wrap;gap:2px 18px;padding-left:26px}
 .forms .check{margin:0 0 6px}
 .yearhead{font-family:var(--display);font-weight:700;font-size:1.2rem;margin:18px 0 8px;color:var(--muted)}
+@media print{.top,.noprint,.dock,#toast,.demo,.offline{display:none!important}body{background:#fff;color:#000}.panel{border-color:#999}}
 select.mv{width:auto;padding:.3em .5em;font-size:.9rem;border-radius:999px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -737,12 +738,14 @@ function showHome(){
     <div class="stairs" aria-label="Example: the four squat levels">
       ${FAM.squat.levels.map(l=>`<div style="${lc(l.lvl)}"><span class="st">Level ${l.lvl}</span>${esc(l.n)}</div>`).join('')}
     </div>
+    <p><button class="btn ghost" id="lib">See all exercises, levels 1 to 4</button></p>
     <div class="choice">
       <button class="role" id="goS"><b>I'm a student</b><span class="muted">Build a workout and track my progress</span></button>
       <button class="role" id="goT"><b>I'm a teacher</b><span class="muted">Manage classes, follow progress, download results</span></button>
     </div>`);
   $('#goS').onclick = showStudentClass;
   $('#goT').onclick = showTeacherLogin;
+  $('#lib').onclick = showLibrary;
 }
 
 /* ===== Student login ===== */
@@ -867,6 +870,7 @@ async function showStudentHome(){
     ${X.plan ? planCardHTML(X.plan, planDone, Object.keys(S.A.fams).length>0) : ''}
     <div class="btns">
       <button class="btn${X.plan?' ghost':''}" id="build">Build my own workout</button>
+      <button class="btn ghost" id="lib">All exercises</button>
       ${last ? `<button class="btn ghost" id="repeat">Repeat last workout</button>` : ''}
       ${last && ready ? `<button class="btn ghost" id="levelup">Repeat with ${ready} level-up${ready===1?'':'s'}</button>` : ''}
     </div>
@@ -878,6 +882,7 @@ async function showStudentHome(){
   wireCharts();
   $('#build').onclick = () => { S.sel = []; S.planId = null; showBuilder(); };
   if($('#fit')) $('#fit').onclick = showFitnessCheck;
+  $('#lib').onclick = showLibrary;
   if($('#planGo')) $('#planGo').onclick = () => startFromPlan(X.plan, false);
   if($('#planMine')) $('#planMine').onclick = () => startFromPlan(X.plan, true);
   const fromLast = bump => {
@@ -1121,6 +1126,22 @@ function showHow(fid, only){
   d.showModal();
 }
 
+/* ===== Exercise list: every movement, levels 1 to 4 ===== */
+async function showLibrary(){
+  await loadDemos();
+  const back = S.student ? showStudentHome : S.teacher ? showTeacherHome : showHome;
+  setView(`<p class="noprint"><button class="btn ghost small" id="back">Back</button> <button class="btn ghost small" id="print">Print this list</button></p>
+    <h1>All exercises</h1>
+    <p class="muted">${FAMILIES.length} movements, each with 4 levels. Level 1 is the easiest, level 4 the hardest. Holds are timed, the others are counted in reps.</p>
+    ${REGIONS.map(r=>`<h2>${r}</h2>${FAMILIES.filter(f=>f.region===r).map(f=>`<div class="panel" style="margin-bottom:12px;break-inside:avoid">
+      <div class="h3">${esc(f.name)}</div>
+      ${f.levels.map(l=>`<div class="howlv" style="${lc(l.lvl)}"><b>Level ${l.lvl}: ${esc(l.n)}</b> <span class="muted small">${l.u==='sec'?'hold':'reps'}</span>
+        <p style="margin:2px 0 4px">${esc(l.c)}</p><span class="noprint">${videoLink(f.id, l)}</span></div>`).join('')}
+      <p class="warn small" style="margin:8px 0 0"><b>Watch out:</b> ${esc(SAFETY[f.id])}</p></div>`).join('')}`).join('')}`);
+  $('#back').onclick = back;
+  $('#print').onclick = () => window.print();
+}
+
 /* ===== Class challenges ===== */
 function challengeHTML(ch, teacher=false){
   const today = ymd(new Date()), done = ch.progress >= ch.target, pct = Math.min(100, Math.round(ch.progress/ch.target*100));
@@ -1245,6 +1266,7 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
+    <p><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button></p>
     <div class="panel"><div class="h3">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
       <label class="field"><span>Year group</span><input id="cy" list="yearList" placeholder="e.g. Year 10" autocomplete="off"></label></div>
@@ -1275,6 +1297,7 @@ async function showTeacherHome(){
   };
   $('#all').onclick = downloadAll;
   $('#imp').onclick = () => showImport();
+  $('#lib').onclick = showLibrary;
   $('#chp').onclick = async () => {
     try{ await Store.tChangePin(S.teacher, $('#op').value, $('#np').value); $('#op').value=$('#np').value=''; toast('Teacher PIN changed.'); }
     catch(e){ fail('Could not change the PIN', e); }

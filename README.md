@@ -16,6 +16,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
 - **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.
+- **Exercise list:** one page with all 20 movements and their 4 levels (80 exercises), printable, open to anyone from the home page.
 - **How to guides:** every movement has a guide with the steps for all 4 levels, a safety point and a demo video link. It opens from the builder and from the timer, which pauses while the guide is open.
 - **Workout of the week:** the workout set by the teacher appears at the top of the student's page. Students do it as set or at their own levels.
 - **Class challenges:** shared team goals with a progress bar and no individual rankings.
