@@ -40,7 +40,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 4. Host `index.html` anywhere static, for example GitHub Pages (Settings > Pages > deploy from `main`), Netlify or the school website.
 5. Log in as teacher with the PIN **`change-me-now`**, then change it straight away under **Change teacher PIN**. Use at least 6 characters and share it only with PE staff.
 
-If `CONFIG` is left empty, the app runs in **demo mode**: data stays in that browser and the teacher PIN is `2468`.
+If `CONFIG` is left empty, the app runs in **demo mode**: data stays in that browser and the teacher PIN is `0000`.
 
 ## Security
 

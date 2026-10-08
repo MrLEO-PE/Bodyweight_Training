@@ -182,7 +182,7 @@ fieldset.plain legend{font-weight:600;margin-bottom:6px;padding:0}
 </style>
 </head>
 <body>
-<div id="demo" class="demo" hidden>Demo mode: data is saved on this device only. Teacher PIN for the demo: 2468.</div>
+<div id="demo" class="demo" hidden>Demo mode: data is saved on this device only. Teacher PIN for the demo: 0000.</div>
 <div id="offline" class="offline" hidden>You are offline. Workouts are saved on this device and upload when you reconnect.</div>
 <header class="top">
   <button class="brand" id="brand" aria-label="Bodyweight Builder home">
@@ -434,7 +434,7 @@ function makeCloud(){
   };
 }
 const Local = {
-  _load(){ const d = ls.get('bwb-data', null) || {}; return {classes:[],students:[],sessions:[],teacher_pin:'2468',...d}; },
+  _load(){ const d = ls.get('bwb-data', null) || {}; return {classes:[],students:[],sessions:[],teacher_pin:'0000',...d}; },
   _save(d){ try{ localStorage.setItem('bwb-data', JSON.stringify(d)); }catch(e){ throw new Error('Could not save on this device.'); } },
   _me(d, s){ const c=d.classes.find(x=>x.id===s.class_id); return {student:{id:s.id,name:s.name}, cls:{id:c.id,name:c.name,weekly_goal:c.weekly_goal||3}}; },
   _stu(tok){ const d=this._load(), s=d.students.find(x=>'local-s:'+x.id===tok); if(!s) throw new Error('Your session has expired. Please log in again.'); return [d,s]; },
