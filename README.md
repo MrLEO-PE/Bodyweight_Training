@@ -18,7 +18,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.
 - **Exercise list:** one page with all 20 movements and their 4 levels (80 exercises), printable, open to anyone from the home page.
 - **How to guides:** every movement has a guide with the steps for all 4 levels, a safety point and a demo video link. It opens from the builder and from the timer, which pauses while the guide is open.
-- **Workout of the week:** the workout set by the teacher appears at the top of the student's page. Students do it as set or at their own levels.
+- **Challenge workout:** the workout set by the teacher appears at the top of the student's page. Students do it as set or at their own levels.
 - **Class challenges:** shared team goals with a progress bar and no individual rankings.
 - **Fitness checks:** five tests (squats and push-ups in 1 minute, plank and wall sit holds, jumping jacks in 1 minute), each with a guided timer. Students see their change since their first check.
 
@@ -36,7 +36,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Move a student** to another class from the class page, for example when they change form. Their PIN and history go with them.
 - Or paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
 - A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
-- **Workout of the week** per class: build it with the same builder, add a message, and see how many students have done it.
+- **Challenge workout:** build it with the same builder from the exercise list, add a message and a due date, and give it to a whole year group or chosen forms at once. See who has done it and who has not.
 - **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
   - Choose whole year groups (forms added later join automatically), single forms, or both.
   - The card shows each form's part of the total, and students see their own form highlighted.

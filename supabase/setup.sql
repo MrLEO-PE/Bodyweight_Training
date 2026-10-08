@@ -102,6 +102,7 @@ create table if not exists public.bw_plans (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+alter table public.bw_plans add column if not exists due_on date;
 alter table public.bw_sessions add column if not exists plan_id uuid references public.bw_plans(id) on delete set null;
 
 -- Team challenges shared by one or more classes
@@ -597,9 +598,10 @@ begin
     raise exception 'This workout is not valid.';
   end if;
   update bw_plans set active = false where class_id = p_class_id and active;
-  insert into bw_plans (class_id, title, note, work_sec, rest_sec, rounds, exercises)
+  insert into bw_plans (class_id, title, note, work_sec, rest_sec, rounds, exercises, due_on)
   values (p_class_id, left(trim(p_plan ->> 'title'), 80), left(coalesce(p_plan ->> 'note', ''), 500),
-          (p_plan ->> 'work_sec')::int, (p_plan ->> 'rest_sec')::int, (p_plan ->> 'rounds')::int, ex);
+          (p_plan ->> 'work_sec')::int, (p_plan ->> 'rest_sec')::int, (p_plan ->> 'rounds')::int, ex,
+          nullif(p_plan ->> 'due_on', '')::date);
 end $$;
 
 create or replace function public.bw_t_clear_plan(p_token text, p_class_id uuid) returns void
