@@ -2157,10 +2157,14 @@ function renderBoard(){
   const active = rows.filter(r=>r.n).length, total = sum(rows.map(r=>r.points));
   const label = {week:'this week', '4w':'in the last 4 weeks', plan:'on the challenge workout', all:'in total'}[f.period];
   // per-class summary when looking at several classes
-  const byClass = [...new Map(rows.map(r=>[r.c.id, r.c])).values()].sort(byName).map(c=>{
-    const rs = rows.filter(r=>r.c.id===c.id);
-    return {c, size:rs.length, active:rs.filter(r=>r.n).length, points:sum(rs.map(r=>r.points))};
-  });
+  // per-class summary (with a male/female split and an "All classes" total)
+  const stats = rs => { const part = g => { const x = rs.filter(r=>r.s.gender===g); return {size:x.length, active:x.filter(r=>r.n).length, points:sum(x.map(r=>r.points))}; };
+    return {size:rs.length, active:rs.filter(r=>r.n).length, points:sum(rs.map(r=>r.points)), M:part('M'), F:part('F')}; };
+  const byClass = [...new Map(rows.map(r=>[r.c.id, r.c])).values()].sort(byName).map(c=>({c, ...stats(rows.filter(r=>r.c.id===c.id))}));
+  const allRow = stats(rows), anyGender = rows.some(r=>r.s.gender);
+  const pct = (a, n) => n ? Math.round(a/n*100) : 0, per = (p, n) => n ? num(Math.round(p/n)) : '–';
+  const genderCells = x => anyGender && !f.gender ? ['M','F'].map(g=>`<td>${x[g].size ? `${x[g].active}/${x[g].size} (${pct(x[g].active, x[g].size)}%)` : '–'}</td><td>${per(x[g].points, x[g].size)}</td>`).join('') : '';
+  const classRow = (x, name, total) => `<tr${total ? ' style="font-weight:700;border-top:2px solid var(--ink)"' : ''}><td>${name}</td><td>${x.size}</td><td>${x.active} (${pct(x.active, x.size)}%)</td><td>${num(x.points)}</td><td><b>${per(x.points, x.size)}</b></td>${genderCells(x)}</tr>`;
   $('#bOut').className = '';
   $('#bOut').innerHTML = !rows.length ? '<p class="muted">No students match these filters.</p>' : `
     <div class="tiles" style="margin-top:0">
@@ -2168,8 +2172,15 @@ function renderBoard(){
       <div class="tile"><b>${active} <span style="font-size:1rem">(${Math.round(active/rows.length*100)}%)</span></b><span>${plan ? 'did the challenge' : 'did at least one workout'}</span></div>
       <div class="tile"><b>${num(total)}</b><span>points ${label}</span></div>
     </div>
-    ${byClass.length > 1 && !f.none ? `<h2>By class</h2><div class="tbl-wrap panel"><table><thead><tr><th>Class</th><th>Students</th><th>${plan?'Did the challenge':'Active'}</th><th>Points ${label}</th><th>Points per student</th></tr></thead><tbody>
-      ${byClass.sort((a,b)=>b.points/b.size - a.points/a.size).map(x=>`<tr><td><button class="link" data-bcls="${x.c.id}">${esc(x.c.name)}</button></td><td>${x.size}</td><td>${x.active} (${Math.round(x.active/x.size*100)}%)</td><td>${num(x.points)}</td><td><b>${num(Math.round(x.points/x.size))}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${!f.none ? `<h2>By class</h2>
+      ${f.cls ? `<p class="small"><button class="link" id="bAllCls">Show all classes${f.year ? ' in '+esc(f.year) : ''}</button></p>` : ''}
+      <div class="tbl-wrap panel"><table><thead>
+        ${anyGender && !f.gender ? `<tr><th colspan="5"></th><th colspan="2">Male</th><th colspan="2">Female</th></tr>` : ''}
+        <tr><th>Class</th><th>Students</th><th>${plan?'Did the challenge':'Active'}</th><th>Points ${label}</th><th>Points per student</th>
+        ${anyGender && !f.gender ? `<th>${plan?'Did it':'Active'}</th><th>Per student</th><th>${plan?'Did it':'Active'}</th><th>Per student</th>` : ''}</tr></thead><tbody>
+      ${byClass.sort((a,b)=>b.points/b.size - a.points/a.size).map(x=>classRow(x, `<button class="link" data-bcls="${x.c.id}">${esc(x.c.name)}</button>`)).join('')}
+      ${byClass.length > 1 ? classRow(allRow, `All classes${f.year ? ' in '+esc(f.year) : ''}`, true) : ''}</tbody></table></div>
+      ${!anyGender ? `<p class="muted small">Set each student's gender (import a Gender column, or on the class page) to see the male / female split here.</p>` : ''}` : ''}
     <div class="between"><h2>Students</h2><button class="btn ghost small" id="bDl">Download this view (.xlsx)</button></div>
     <div class="tbl-wrap panel"><table><thead><tr><th>#</th><th>Student</th><th>Gender</th><th>Class</th><th>Points ${label}</th><th>${plan ? 'Challenge' : 'Workouts'}</th><th>Rank</th><th>Average level</th><th>Challenge workout</th><th>Last workout</th></tr></thead><tbody>
     ${rows.map((r,i)=>`<tr${r.n ? '' : ' class="muted"'}><td>${r.n ? i+1 : ''}</td><td><button class="link" data-bst="${r.s.id}">${esc(r.s.name)}</button></td><td>${GENDER_LABEL[r.s.gender] || ''}</td><td>${esc(r.c.name)}</td>
@@ -2177,6 +2188,7 @@ function renderBoard(){
       <td>${!r.D.plan ? '<span class="muted">none set</span>' : r.best ? `Done, ${num(pointsOf(r.best))} pts` : '<b>Not done</b>'}</td>
       <td>${r.last ? fmtDate(r.last) : '<span class="muted">never</span>'}</td></tr>`).join('')}</tbody></table></div>`;
   $$('[data-bcls]').forEach(b=>b.onclick=()=>{ BD.f.cls = b.dataset.bcls; $('#bC').value = BD.f.cls; renderBoard(); });
+  if($('#bAllCls')) $('#bAllCls').onclick = () => { BD.f.cls = ''; $('#bC').value = ''; renderBoard(); };
   $$('[data-bst]').forEach(b=>b.onclick=()=>{ const r = rows.find(x=>x.s.id===b.dataset.bst);
     showTeacherStudent(r.c, {id:r.s.id, name:r.s.name}, r.mine, (r.D.tests||[]).filter(t=>t.student_id===r.s.id), showBoard); });
   if($('#bDl')) $('#bDl').onclick = () => {
@@ -2186,6 +2198,11 @@ function renderBoard(){
       [plan ? 'Challenge done' : 'Workouts']: plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n,'Average level':r.lvl,
       'Challenge workout':!r.D.plan ? '' : r.best ? `Done, ${pointsOf(r.best)} pts` : 'Not done','Last workout':r.last?fmtDate(r.last):''}));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, sheet(data, H), 'Results');
+    const HC = ['Class','Students','Active',`Points ${label}`,'Points per student','Male students','Male active','Male points per student','Female students','Female active','Female points per student'];
+    const crow = (x, name) => ({'Class':name,'Students':x.size,'Active':x.active,[`Points ${label}`]:x.points,'Points per student':x.size?Math.round(x.points/x.size):'',
+      'Male students':x.M.size,'Male active':x.M.active,'Male points per student':x.M.size?Math.round(x.M.points/x.M.size):'',
+      'Female students':x.F.size,'Female active':x.F.active,'Female points per student':x.F.size?Math.round(x.F.points/x.F.size):''});
+    XLSX.utils.book_append_sheet(wb, sheet([...byClass.map(x=>crow(x, x.c.name)), crow(allRow, 'All classes')], HC), 'By class');
     XLSX.writeFile(wb, `Results ${f.gender==='M' ? 'male ' : f.gender==='F' ? 'female ' : ''}${f.cls ? fileSafe(BD.classes.find(c=>c.id===f.cls).name) : f.year || 'all classes'} ${label}.xlsx`);
   };
 }
