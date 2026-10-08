@@ -82,10 +82,57 @@ create table if not exists public.bw_tokens (
   expires_at timestamptz not null
 );
 
+-- Workout of the week, set by the teacher for a class
+create table if not exists public.bw_plans (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.bw_classes(id) on delete cascade,
+  title text not null,
+  note text not null default '',
+  work_sec int not null,
+  rest_sec int not null,
+  rounds int not null,
+  exercises jsonb not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.bw_sessions add column if not exists plan_id uuid references public.bw_plans(id) on delete set null;
+
+-- Team challenges shared by one or more classes
+create table if not exists public.bw_challenges (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  metric text not null check (metric in ('workouts', 'reps', 'minutes')),
+  target int not null check (target > 0),
+  class_ids uuid[] not null,
+  starts_on date not null,
+  ends_on date not null,
+  created_at timestamptz not null default now()
+);
+
+-- Fitness checks: the teacher opens one per class with a label such as 'Start of Term 1'
+alter table public.bw_classes add column if not exists test_label text;
+create table if not exists public.bw_tests (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid references public.bw_classes(id) on delete cascade,
+  student_id uuid references public.bw_students(id) on delete set null,
+  student_name text not null,
+  label text not null,
+  results jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists bw_tests_class on public.bw_tests (class_id, created_at);
+
+-- Teacher's own demo video links, keyed by exercise ('squat-1' ... 'balance-4')
+create table if not exists public.bw_demos (
+  exercise_key text primary key,
+  url text not null
+);
+
 /* ---------- Lock the tables: no direct access from the browser ---------- */
 
 do $$ declare t text; p record; begin
-  foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens'] loop
+  foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens',
+                           'bw_plans','bw_challenges','bw_tests','bw_demos'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on table public.%I from anon, authenticated', t);
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
@@ -216,9 +263,11 @@ declare
   s bw_students; c bw_classes; r bw_sessions;
   ex jsonb := p_s -> 'exercises';
   done_at timestamptz := now();
+  plan uuid;
 begin
   select * into s from bw_students where id = sid;
   select * into c from bw_classes where id = s.class_id;
+  select pl.id into plan from bw_plans pl where pl.id::text = p_s ->> 'plan_id' and pl.class_id = c.id;
   if jsonb_typeof(ex) is distinct from 'array' or jsonb_array_length(ex) not between 1 and 12 then
     raise exception 'This workout is not valid.';
   end if;
@@ -237,7 +286,7 @@ begin
     end;
   end if;
   insert into bw_sessions (class_id, class_name, student_id, student_name, work_sec, rest_sec, rounds,
-                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at)
+                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id)
   values (c.id, c.name, s.id, s.name,
           (p_s ->> 'work_sec')::int, (p_s ->> 'rest_sec')::int, (p_s ->> 'rounds')::int, ex,
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
@@ -245,7 +294,7 @@ begin
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
                     jsonb_array_elements_text(e -> 'results') v where e ->> 'unit' = 'sec'), 0),
           least(greatest(coalesce((p_s ->> 'duration_sec')::int, 0), 0), 7200),
-          (p_s ->> 'rpe')::int, done_at)
+          (p_s ->> 'rpe')::int, done_at, plan)
   returning * into r;
   return r;
 end $$;
@@ -380,6 +429,172 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   return query select * from bw_sessions where class_id = p_class_id order by created_at desc;
+end $$;
+
+/* ---------- Workout of the week, challenges, fitness checks, demo videos ---------- */
+
+create or replace function public.bw__clamp(v jsonb, mx int) returns int
+language sql immutable as $$
+  select case when jsonb_typeof(v) = 'number' then least(greatest(round((v #>> '{}')::numeric)::int, 0), mx) end
+$$;
+
+create or replace function public.bw__plan(p_class_id uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select to_jsonb(p) - 'active' from bw_plans p
+   where p.class_id = p_class_id and p.active order by p.created_at desc limit 1
+$$;
+
+create or replace function public.bw__challenge(ch bw_challenges) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'id', ch.id, 'title', ch.title, 'metric', ch.metric, 'target', ch.target,
+    'starts_on', ch.starts_on, 'ends_on', ch.ends_on, 'class_ids', to_jsonb(ch.class_ids),
+    'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = any(ch.class_ids)), '[]'::jsonb),
+    'progress', coalesce((select case ch.metric when 'workouts' then count(*)
+                                                when 'reps' then sum(x.total_reps)
+                                                else sum(x.duration_sec) / 60 end
+                            from bw_sessions x
+                           where x.class_id = any(ch.class_ids)
+                             and x.created_at >= ch.starts_on and x.created_at < ch.ends_on + 1), 0))
+$$;
+
+create or replace function public.bw_student_extras(p_token text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); c bw_classes;
+begin
+  select k.* into c from bw_classes k join bw_students s on s.class_id = k.id where s.id = sid;
+  return jsonb_build_object(
+    'plan', bw__plan(c.id),
+    'test_label', c.test_label,
+    'tests', coalesce((select jsonb_agg(to_jsonb(t) - 'student_id' - 'class_id' order by t.created_at)
+                         from bw_tests t where t.student_id = sid), '[]'::jsonb),
+    'challenges', coalesce((select jsonb_agg(bw__challenge(ch) order by ch.ends_on)
+                              from bw_challenges ch
+                             where c.id = any(ch.class_ids) and ch.starts_on <= current_date
+                               and ch.ends_on >= current_date - 14), '[]'::jsonb));
+end $$;
+
+create or replace function public.bw_add_test(p_token text, p_r jsonb)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); s bw_students; c bw_classes;
+begin
+  select * into s from bw_students where id = sid;
+  select * into c from bw_classes where id = s.class_id;
+  if c.test_label is null then
+    return jsonb_build_object('error', 'There is no fitness check open right now.');
+  end if;
+  insert into bw_tests (class_id, student_id, student_name, label, results)
+  values (c.id, s.id, s.name, c.test_label, jsonb_build_object(
+    'squat', bw__clamp(p_r -> 'squat', 200),
+    'pushup', bw__clamp(p_r -> 'pushup', 200),
+    'pushup_type', case when p_r ->> 'pushup_type' = 'knee' then 'knee' else 'full' end,
+    'plank', bw__clamp(p_r -> 'plank', 600),
+    'wallsit', bw__clamp(p_r -> 'wallsit', 600),
+    'jacks', bw__clamp(p_r -> 'jacks', 300)));
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.bw_list_demos()
+returns table (exercise_key text, url text)
+language sql stable security definer set search_path = public as $$
+  select d.exercise_key, d.url from bw_demos d
+$$;
+
+create or replace function public.bw_t_set_demo(p_token text, p_key text, p_url text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  if coalesce(p_key, '') !~ '^[a-z]+-[1-4]$' then raise exception 'Unknown exercise.'; end if;
+  if length(trim(coalesce(p_url, ''))) = 0 then
+    delete from bw_demos where exercise_key = p_key;
+    return;
+  end if;
+  if trim(p_url) !~* '^https://' or length(p_url) > 500 then
+    raise exception 'The link must start with https://';
+  end if;
+  insert into bw_demos (exercise_key, url) values (p_key, trim(p_url))
+  on conflict (exercise_key) do update set url = excluded.url;
+end $$;
+
+create or replace function public.bw_t_set_plan(p_token text, p_class_id uuid, p_plan jsonb) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare ex jsonb := p_plan -> 'exercises';
+begin
+  perform bw__teacher(p_token);
+  if jsonb_typeof(ex) is distinct from 'array' or jsonb_array_length(ex) not between 1 and 12
+     or length(trim(coalesce(p_plan ->> 'title', ''))) = 0
+     or coalesce((p_plan ->> 'rounds')::int, 0) not between 1 and 3
+     or coalesce((p_plan ->> 'work_sec')::int, 0) not between 10 and 120
+     or coalesce((p_plan ->> 'rest_sec')::int, -1) not between 0 and 120 then
+    raise exception 'This workout is not valid.';
+  end if;
+  update bw_plans set active = false where class_id = p_class_id and active;
+  insert into bw_plans (class_id, title, note, work_sec, rest_sec, rounds, exercises)
+  values (p_class_id, left(trim(p_plan ->> 'title'), 80), left(coalesce(p_plan ->> 'note', ''), 500),
+          (p_plan ->> 'work_sec')::int, (p_plan ->> 'rest_sec')::int, (p_plan ->> 'rounds')::int, ex);
+end $$;
+
+create or replace function public.bw_t_clear_plan(p_token text, p_class_id uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  update bw_plans set active = false where class_id = p_class_id and active;
+end $$;
+
+create or replace function public.bw_t_class_extras(p_token text, p_class_id uuid)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return jsonb_build_object(
+    'plan', bw__plan(p_class_id),
+    'test_label', (select k.test_label from bw_classes k where k.id = p_class_id),
+    'tests', coalesce((select jsonb_agg(to_jsonb(t) order by t.created_at)
+                         from bw_tests t where t.class_id = p_class_id), '[]'::jsonb));
+end $$;
+
+create or replace function public.bw_t_set_test_label(p_token text, p_class_id uuid, p_label text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  update bw_classes set test_label = nullif(left(trim(coalesce(p_label, '')), 60), '') where id = p_class_id;
+end $$;
+
+create or replace function public.bw_t_challenges(p_token text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return coalesce((select jsonb_agg(bw__challenge(ch) order by ch.ends_on desc) from bw_challenges ch), '[]'::jsonb);
+end $$;
+
+create or replace function public.bw_t_add_challenge(p_token text, p_c jsonb) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare ids uuid[];
+begin
+  perform bw__teacher(p_token);
+  select array_agg(k.id) into ids from bw_classes k
+   where k.id::text in (select jsonb_array_elements_text(p_c -> 'class_ids'));
+  if length(trim(coalesce(p_c ->> 'title', ''))) = 0 then raise exception 'Give the challenge a title.'; end if;
+  if ids is null then raise exception 'Choose at least one class.'; end if;
+  if coalesce(p_c ->> 'metric', '') not in ('workouts', 'reps', 'minutes') then raise exception 'Choose what to count.'; end if;
+  if coalesce((p_c ->> 'target')::int, 0) < 1 then raise exception 'Set a target above 0.'; end if;
+  if (p_c ->> 'starts_on') is null or (p_c ->> 'ends_on') is null
+     or (p_c ->> 'ends_on')::date < (p_c ->> 'starts_on')::date then
+    raise exception 'The end date must be on or after the start date.';
+  end if;
+  insert into bw_challenges (title, metric, target, class_ids, starts_on, ends_on)
+  values (left(trim(p_c ->> 'title'), 100), p_c ->> 'metric', (p_c ->> 'target')::int, ids,
+          (p_c ->> 'starts_on')::date, (p_c ->> 'ends_on')::date);
+end $$;
+
+create or replace function public.bw_t_delete_challenge(p_token text, p_id uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  delete from bw_challenges where id = p_id;
 end $$;
 
 /* ---------- Permissions: helpers are private, bw_* functions are public ---------- */

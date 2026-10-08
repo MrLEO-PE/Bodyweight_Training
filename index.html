@@ -158,6 +158,26 @@ input.num{width:80px;padding:.4em .5em}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 #toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:.7em 1.1em;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
+
+/* workout of the week, challenges, fitness check, how-to */
+.feature{border:2px solid var(--ink);margin-bottom:12px}
+.feature .h3{margin:2px 0 4px}
+.bar{height:12px;border-radius:6px;background:var(--line);overflow:hidden;margin:10px 0 6px}
+.bar i{display:block;height:100%;border-radius:6px;background:var(--l2)}
+.bar.done i{background:var(--l1)}
+.center{text-align:center}
+.big-time{font-family:var(--display);font-weight:800;font-size:min(32vw,8rem);line-height:1;text-align:center;font-variant-numeric:tabular-nums;margin:10px 0}
+input.score{max-width:200px;font:800 2rem var(--display)}
+dialog.how{border:0;border-radius:var(--r);padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);background:var(--card);color:var(--ink)}
+dialog.how::backdrop{background:rgba(0,0,0,.55)}
+.how-in{padding:20px}
+.howlv{border-left:6px solid var(--lc);padding:2px 0 2px 12px;margin:14px 0}
+.howlv p{margin:4px 0 8px}
+.warn{background:var(--paper);border-radius:10px;padding:10px 12px}
+.dfam{border:1px solid var(--line);border-radius:10px;padding:8px 12px 0;margin:10px 0}
+.dfam legend{font-weight:700;padding:0 4px}
+fieldset.plain{border:0;padding:0;margin:0 0 10px}
+fieldset.plain legend{font-weight:600;margin-bottom:6px;padding:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -297,6 +317,41 @@ const FAMILIES = [
 const FAM = Object.fromEntries(FAMILIES.map(f=>[f.id,f]));
 const famIdOf = e => e.fid || FAMILIES.find(f=>f.name===e.family)?.id;
 
+/* One safety point per movement, shown in the How to guide */
+const SAFETY = {
+  squat:'Knees follow the toes and heels stay down. Land softly on every jump.',
+  lunge:'Front knee stays above the ankle and does not cave inwards.',
+  lateral:'Bent knee stays in line with the foot, chest up.',
+  bridge:'Push through the heels. Do not arch the lower back at the top.',
+  calf:'Lower slowly and keep the ankles straight, not rolling outwards.',
+  wallsit:'Knees above the ankles, never past the toes. Stop if your knees hurt.',
+  pushup:'Body in one straight line, hips do not sag. Elbows at about 45 degrees, not flared out.',
+  dip:'Shoulders down away from the ears, fingers pointing towards your feet.',
+  pike:'Move slowly and keep the head between the hands. Stop if wrists or shoulders hurt.',
+  bear:'Back flat like a table, hands under the shoulders, knees low.',
+  plank:'Squeeze the glutes and belly, hips level with the shoulders. Stop when the shape breaks.',
+  sideplank:'Elbow under the shoulder and hips up. Stop when the hips drop.',
+  crunch:'Do not pull on your neck. Keep a fist of space under the chin.',
+  hollow:'Lower back stays pressed into the floor. If it lifts, bend the knees.',
+  back:'Lift slowly and look at the floor to keep the neck long.',
+  climber:'Hands under the shoulders, hips low, belly tight.',
+  jacks:'Land softly on the balls of the feet with knees slightly bent.',
+  knees:'Stay tall on the balls of the feet and drive with the arms.',
+  burpee:'Keep the back flat in the plank and land jumps softly.',
+  balance:'Clear the space around you and stay near a wall or chair you can grab.'
+};
+
+/* Fitness check: the same five tests every time, so results can be compared */
+const TESTS = [
+  {k:'squat', short:'Squats', name:'Squats in 1 minute', unit:'reps', how:['squat',1], text:'Feet shoulder width apart, thighs parallel to the floor, stand all the way up. Count every full squat.'},
+  {k:'pushup', short:'Push-ups', name:'Push-ups in 1 minute', unit:'reps', how:['pushup',3], text:'Chest close to the floor, body straight, arms straight at the top. Choose full or knee push-ups and use the same version every time.'},
+  {k:'plank', short:'Plank', name:'Plank hold', unit:'sec', how:['plank',2], text:'Forearm plank with the body in a straight line. Press Stop as soon as your hips drop or your knees touch the floor.'},
+  {k:'wallsit', short:'Wall sit', name:'Wall sit hold', unit:'sec', how:['wallsit',2], text:'Back flat on the wall, thighs parallel to the floor. Press Stop when you stand up or slide up the wall.'},
+  {k:'jacks', short:'Jumping jacks', name:'Jumping jacks in 1 minute', unit:'reps', how:['jacks',2], text:'Feet out with hands meeting overhead, then back in. Count each out-and-in as one.'}
+];
+const TEST_REPS_SEC = 60, TEST_MAX_HOLD = 180;
+const METRIC = {workouts:'workouts', reps:'reps', minutes:'minutes of training'};
+
 /* ===== Helpers ===== */
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -310,6 +365,10 @@ const sum = a => a.reduce((x,y)=>x+(+y||0),0);
 const fmtDate = iso => new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
 const fmtShort = iso => new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
 const fmtTime = iso => new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+const ymd = d => { const x=new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
+const addDays = n => { const d=new Date(); d.setDate(d.getDate()+n); return d; };
+const fmtDay = s => fmtDate(s+'T00:00');
+const num = n => Number(n||0).toLocaleString('en-GB');
 const avgLvl = s => s.exercises?.length ? +(sum(s.exercises.map(e=>e.level))/s.exercises.length).toFixed(1) : 0;
 const unitWord = u => u==='sec' ? 's' : ' reps';
 const totals = ex => ({
@@ -337,7 +396,7 @@ function makeCloud(){
   const rpc = async (fn, args={}) => {
     const {data,error} = await sb.rpc(fn, args);
     if(error && (error.code==='PGRST202' || /schema cache|could not find the function/i.test(error.message)))
-      throw new Error('The database is not set up yet. Run supabase/setup.sql in the Supabase SQL Editor, then reload this page.');
+      throw new Error('The database is not up to date. Run the latest supabase/setup.sql in the Supabase SQL Editor, then reload this page.');
     if(error) throw new Error(error.message);
     if(data && !Array.isArray(data) && data.error) throw new Error(data.error);
     return data;
@@ -360,7 +419,18 @@ function makeCloud(){
     tAddStudents: (tok, cid, names) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names}),
     tResetPin: (tok, id) => rpc('bw_t_reset_pin', {p_token:tok, p_student_id:id}),
     tRemoveStudent: (tok, id) => rpc('bw_t_remove_student', {p_token:tok, p_student_id:id}),
-    tSessions: (tok, cid) => rpc('bw_t_sessions', {p_token:tok, p_class_id:cid})
+    tSessions: (tok, cid) => rpc('bw_t_sessions', {p_token:tok, p_class_id:cid}),
+    studentExtras: tok => rpc('bw_student_extras', {p_token:tok}),
+    addTest: (tok, r) => rpc('bw_add_test', {p_token:tok, p_r:r}),
+    listDemos: () => rpc('bw_list_demos'),
+    tSetDemo: (tok, key, url) => rpc('bw_t_set_demo', {p_token:tok, p_key:key, p_url:url}),
+    tSetPlan: (tok, cid, plan) => rpc('bw_t_set_plan', {p_token:tok, p_class_id:cid, p_plan:plan}),
+    tClearPlan: (tok, cid) => rpc('bw_t_clear_plan', {p_token:tok, p_class_id:cid}),
+    tClassExtras: (tok, cid) => rpc('bw_t_class_extras', {p_token:tok, p_class_id:cid}),
+    tSetTestLabel: (tok, cid, label) => rpc('bw_t_set_test_label', {p_token:tok, p_class_id:cid, p_label:label}),
+    tChallenges: tok => rpc('bw_t_challenges', {p_token:tok}),
+    tAddChallenge: (tok, ch) => rpc('bw_t_add_challenge', {p_token:tok, p_c:ch}),
+    tDeleteChallenge: (tok, id) => rpc('bw_t_delete_challenge', {p_token:tok, p_id:id})
   };
 }
 const Local = {
@@ -398,7 +468,7 @@ const Local = {
   async tClasses(tok){ const d=this._t(tok); return d.classes.map(c=>({...c, weekly_goal:c.weekly_goal||3, students:d.students.filter(s=>s.class_id===c.id).length, workouts:d.sessions.filter(s=>s.class_id===c.id).length})).sort(byName); },
   async tAddClass(tok, name, code, goal){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
   async tUpdateClass(tok, id, code, goal){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.code=code; c.weekly_goal=goal; } this._save(d); },
-  async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); this._save(d); },
+  async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); d.plans=(d.plans||[]).filter(p=>p.class_id!==id); d.tests=(d.tests||[]).filter(t=>t.class_id!==id); this._save(d); },
   async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin})).sort(byName); },
   async tAddStudents(tok, cid, names){
     const d=this._t(tok), have=new Set(d.students.filter(s=>s.class_id===cid).map(s=>norm(s.name))); let n=0;
@@ -407,7 +477,48 @@ const Local = {
   },
   async tResetPin(tok, id){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.pin=null; this._save(d); },
   async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
-  async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); }
+  async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
+  _plan(d, cid){ const p=(d.plans||[]).filter(x=>x.class_id===cid && x.active).sort(newestFirst)[0]; return p ? {...p} : null; },
+  _chl(d, ch){
+    const ss = d.sessions.filter(s=>ch.class_ids.includes(s.class_id) && ymd(s.created_at)>=ch.starts_on && ymd(s.created_at)<=ch.ends_on);
+    const progress = ch.metric==='workouts' ? ss.length : ch.metric==='reps' ? sum(ss.map(s=>s.total_reps)) : Math.floor(sum(ss.map(s=>s.duration_sec))/60);
+    return {...ch, progress, classes:d.classes.filter(c=>ch.class_ids.includes(c.id)).map(c=>c.name).sort()};
+  },
+  _testsAsc: a => [...a].sort((x,y)=>x.created_at.localeCompare(y.created_at)),
+  async studentExtras(tok){
+    const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id), today=ymd(new Date()), cutoff=ymd(addDays(-14));
+    return { plan:this._plan(d,c.id), test_label:c.test_label||null,
+      tests:this._testsAsc((d.tests||[]).filter(t=>t.student_id===s.id)),
+      challenges:(d.challenges||[]).filter(ch=>ch.class_ids.includes(c.id) && ch.starts_on<=today && ch.ends_on>=cutoff).map(ch=>this._chl(d,ch)).sort((a,b)=>a.ends_on.localeCompare(b.ends_on)) };
+  },
+  async addTest(tok, r){
+    const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id);
+    if(!c.test_label) throw new Error('There is no fitness check open right now.');
+    (d.tests ||= []).push({id:uid(), class_id:c.id, student_id:s.id, student_name:s.name, label:c.test_label, results:{...r}, created_at:new Date().toISOString()});
+    this._save(d);
+  },
+  async listDemos(){ return Object.entries(this._load().demos||{}).map(([exercise_key,url])=>({exercise_key,url})); },
+  async tSetDemo(tok, key, url){
+    const d=this._t(tok); d.demos ||= {};
+    if(!url) delete d.demos[key];
+    else if(!/^https:\/\//i.test(url)) throw new Error('The link must start with https://');
+    else d.demos[key]=url;
+    this._save(d);
+  },
+  async tSetPlan(tok, cid, p){ const d=this._t(tok); d.plans ||= []; d.plans.forEach(x=>{ if(x.class_id===cid) x.active=false; }); d.plans.push({...p, id:uid(), class_id:cid, active:true, created_at:new Date().toISOString()}); this._save(d); },
+  async tClearPlan(tok, cid){ const d=this._t(tok); (d.plans||[]).forEach(x=>{ if(x.class_id===cid) x.active=false; }); this._save(d); },
+  async tClassExtras(tok, cid){ const d=this._t(tok); return {plan:this._plan(d,cid), test_label:d.classes.find(c=>c.id===cid)?.test_label||null, tests:this._testsAsc((d.tests||[]).filter(t=>t.class_id===cid))}; },
+  async tSetTestLabel(tok, cid, label){ const d=this._t(tok), c=d.classes.find(x=>x.id===cid); if(c) c.test_label=(label||'').trim()||null; this._save(d); },
+  async tChallenges(tok){ const d=this._t(tok); return (d.challenges||[]).map(ch=>this._chl(d,ch)).sort((a,b)=>b.ends_on.localeCompare(a.ends_on)); },
+  async tAddChallenge(tok, ch){
+    const d=this._t(tok);
+    if(!ch.title) throw new Error('Give the challenge a title.');
+    if(!ch.class_ids.length) throw new Error('Choose at least one class.');
+    if(!(ch.target>0)) throw new Error('Set a target above 0.');
+    if(!ch.starts_on || !ch.ends_on || ch.ends_on<ch.starts_on) throw new Error('The end date must be on or after the start date.');
+    (d.challenges ||= []).push({...ch, id:uid(), created_at:new Date().toISOString()}); this._save(d);
+  },
+  async tDeleteChallenge(tok, id){ const d=this._t(tok); d.challenges=(d.challenges||[]).filter(c=>c.id!==id); this._save(d); }
 };
 const useCloud = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase);
 const Store = useCloud ? makeCloud() : Local;
@@ -442,7 +553,13 @@ addEventListener('online', async () => { netBanner(); const n = await flushPendi
 addEventListener('offline', netBanner);
 
 /* ===== State ===== */
-const S = { student:null, cls:null, token:null, teacher:null, sel:[], settings:{work:40,rest:20,rounds:2}, hist:[], A:null };
+const S = { student:null, cls:null, token:null, teacher:null, sel:[], settings:{work:40,rest:20,rounds:2}, hist:[], A:null,
+  extras:null,   // student: workout of the week, challenges, fitness checks
+  planId:null,   // student: the workout of the week being done
+  planFor:null   // teacher: the class a workout of the week is being built for
+};
+let DEMOS = {};  // teacher demo video links, by 'family-level'
+async function loadDemos(){ try{ DEMOS = Object.fromEntries((await Store.listDemos()).map(d=>[d.exercise_key, d.url])); }catch(e){} }
 const view = $('#view');
 function setView(html){ view.onclick = null; view.innerHTML = html; window.scrollTo(0,0); }
 function header(){
@@ -456,7 +573,7 @@ function logout(msg){
   const tok = S.token || S.teacher;
   if(tok) Store.logout(tok).catch(()=>{});
   if(S.student) auth.clear(); else tabStore.del('bwb-teacher');
-  S.student=S.cls=S.token=S.teacher=null; S.sel=[]; S.hist=[]; S.A=null;
+  S.student=S.cls=S.token=S.teacher=S.extras=S.planId=S.planFor=null; S.sel=[]; S.hist=[]; S.A=null;
   showHome(); if(msg) toast(msg);
 }
 function fail(prefix, e){ if(isExpired(e)) return logout(e.message); toast(`${prefix}: ${e.message}`); }
@@ -669,58 +786,104 @@ async function loadHistory(){
   S.A = analyse(S.hist);
   return offline;
 }
+async function loadExtras(){
+  const key = 'bwb-extra-'+S.student.id, empty = {plan:null, test_label:null, tests:[], challenges:[]};
+  try{ S.extras = {...empty, ...(await Store.studentExtras(S.token))}; ls.set(key, S.extras); }
+  catch(e){ if(isExpired(e)) throw e; S.extras = ls.get(key, empty); }
+}
+function planCardHTML(p, done, hasLevels){
+  return `<div class="panel feature"><div class="muted small">Workout of the week from your teacher</div>
+    <div class="h3">${esc(p.title)}</div>
+    ${p.note ? `<p style="margin:0 0 8px">${esc(p.note)}</p>` : ''}
+    <p class="muted small" style="margin:0 0 10px">${p.exercises.length} exercises, ${p.rounds} round${p.rounds===1?'':'s'}, ${p.work_sec}s work, ${p.rest_sec}s rest.${done ? ' <b>Done</b>' : ''}</p>
+    <div class="btns"><button class="btn" id="planGo">${done ? 'Do it again' : 'Do this workout'}</button>
+      ${hasLevels ? `<button class="btn ghost" id="planMine">Do it at my levels</button>` : ''}</div></div>`;
+}
+function startFromPlan(p, mine){
+  S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
+  S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{
+    const f = mine && S.A.fams[x.fid];
+    return {fam:x.fid, lvl: f ? (f.status==='ready' ? f.level+1 : f.level) : x.lvl};
+  });
+  S.planId = p.id;
+  showBuilder();
+}
 async function showStudentHome(){
   header();
   setView(`<h1>Hi ${esc(S.student.name.split(' ')[0])}</h1><div id="home" class="muted">Loading…</div>`);
   let offline;
   try{
     const up = await flushPending(); if(up) toast(`${up} saved workout${up===1?'':'s'} uploaded`);
-    offline = await loadHistory();
+    [offline] = await Promise.all([loadHistory(), loadExtras()]);
   }catch(e){ return fail('Could not load your workouts', e); }
-  const ready = readyCount(S.A), last = S.hist[0];
+  const X = S.extras, ready = readyCount(S.A), last = S.hist[0];
+  const testDone = !!X.test_label && X.tests.some(t=>t.label===X.test_label);
+  const planDone = !!X.plan && S.hist.some(s=>s.plan_id===X.plan.id);
   $('#home').className = '';
   $('#home').innerHTML = `
+    ${X.test_label && !testDone ? `<div class="panel feature"><div class="muted small">Fitness check</div>
+      <div class="h3">${esc(X.test_label)}</div>
+      <p style="margin:0 0 10px">Five short tests, about 10 minutes. Your teacher compares your results across the year.</p>
+      <button class="btn" id="fit">Start the fitness check</button></div>` : ''}
+    ${X.plan ? planCardHTML(X.plan, planDone, Object.keys(S.A.fams).length>0) : ''}
     <div class="btns">
-      <button class="btn" id="build">Build a workout</button>
+      <button class="btn${X.plan?' ghost':''}" id="build">Build my own workout</button>
       ${last ? `<button class="btn ghost" id="repeat">Repeat last workout</button>` : ''}
       ${last && ready ? `<button class="btn ghost" id="levelup">Repeat with ${ready} level-up${ready===1?'':'s'}</button>` : ''}
     </div>
     ${offline ? `<p class="muted small">Showing the workouts saved on this device. Connect to the internet to see the latest.</p>` : ''}
-    <div id="hist" style="margin-top:18px">${progressHTML(S.hist, S.cls.weekly_goal||3, S.A)}</div>`;
+    ${X.challenges.length ? `<h2>Class challenges</h2><div class="clist">${X.challenges.map(ch=>challengeHTML(ch)).join('')}</div>` : ''}
+    <div id="hist" style="margin-top:18px">${progressHTML(S.hist, S.cls.weekly_goal||3, S.A)}</div>
+    ${X.tests.length ? `<h2>My fitness checks</h2>${testTableHTML(X.tests)}
+      ${testDone ? `<p><button class="btn ghost small" id="fit">Redo the fitness check</button></p>` : ''}` : ''}`;
   wireCharts();
-  $('#build').onclick = () => { S.sel = []; showBuilder(); };
+  $('#build').onclick = () => { S.sel = []; S.planId = null; showBuilder(); };
+  if($('#fit')) $('#fit').onclick = showFitnessCheck;
+  if($('#planGo')) $('#planGo').onclick = () => startFromPlan(X.plan, false);
+  if($('#planMine')) $('#planMine').onclick = () => startFromPlan(X.plan, true);
   const fromLast = bump => {
     S.settings = {work:last.work_sec, rest:last.rest_sec, rounds:last.rounds};
     S.sel = last.exercises.map(e=>{ const fid=famIdOf(e), f=S.A.fams[fid]; return {fam:fid, lvl: bump && f?.status==='ready' && e.level===f.level ? e.level+1 : e.level}; }).filter(x=>FAM[x.fam]);
+    S.planId = null;
     showBuilder();
   };
   if($('#repeat')) $('#repeat').onclick = () => fromLast(false);
   if($('#levelup')) $('#levelup').onclick = () => fromLast(true);
 }
 
-/* ===== Builder ===== */
+/* ===== Builder (students build workouts, teachers build the workout of the week) ===== */
 const seg = (k,label,opts,suf) => `<span><label>${label}</label><span class="seg" role="group" aria-label="${label}">${opts.map(v=>`<button type="button" data-set="${k}" data-val="${v}" aria-pressed="${S.settings[k]===v}">${v}${suf}</button>`).join('')}</span></span>`;
 function famRow(f){
   const me = S.A?.fams[f.id];
   const tag = l => !me ? '' : l===me.level ? '<em class="tag">Your level</em>' : (me.status==='ready' && l===me.level+1) ? '<em class="tag">Try this</em>' : '';
   return `<div class="fam" data-fam="${f.id}">
-    <div class="fam-name">${esc(f.name)}${me?` <span class="muted small">best ${me.best}${unitWord(me.unit)} at level ${me.level}</span>`:''}</div>
+    <div class="fam-name">${esc(f.name)} <button type="button" class="link small" data-how="${f.id}">How to</button>${me?` <span class="muted small">best ${me.best}${unitWord(me.unit)} at level ${me.level}</span>`:''}</div>
     <div class="lv">${f.levels.map(l=>`<button type="button" class="chip" data-fam="${f.id}" data-lvl="${l.lvl}" style="${lc(l.lvl)}" aria-pressed="false"><small>Level ${l.lvl}${l.u==='sec'?', hold':''}${tag(l.lvl)}</small>${esc(l.n)}<span class="ord" hidden></span></button>`).join('')}</div>
     <p class="cue" hidden></p>
   </div>`;
 }
 function showBuilder(){
-  setView(`<h1>Build your workout</h1>
-    <p class="muted">Pick one level per movement, 8 to 12 exercises in total. They run in the order you pick them. For a full-body session, include Legs, Upper body and Core.${S.A && Object.keys(S.A.fams).length ? ' <b>Your level</b> shows where you are, <b>Try this</b> means you are ready to step up.' : ''}</p>
-    <div class="panel setrow">${seg('work','Work',[30,40,45],'s')}${seg('rest','Rest',[15,20,30],'s')}${seg('rounds','Rounds',[1,2,3],'')}</div>
+  const T = S.planFor;
+  setView(`${T ? `<p><button class="btn ghost small" id="cancelPlan">Back to ${esc(T.name)}</button></p>
+      <h1>Workout of the week</h1>
+      <p class="muted">For ${esc(T.name)}. Pick 8 to 12 exercises at the level most of the class can manage. Students can do it as set or at their own levels.</p>
+      <div class="panel"><label class="field"><span>Title</span><input id="ptitle" maxlength="80" value="${esc(T.plan?.title || 'Workout of the week')}"></label>
+        <label class="field" style="margin:0"><span>Message to students (optional)</span><textarea id="pnote" rows="2" maxlength="500" placeholder="e.g. Core focus before our gymnastics unit">${esc(T.plan?.note || '')}</textarea></label></div>`
+    : `<h1>Build your workout</h1>
+      <p class="muted">Pick one level per movement, 8 to 12 exercises in total. They run in the order you pick them. For a full-body session, include Legs, Upper body and Core.${S.A && Object.keys(S.A.fams).length ? ' <b>Your level</b> shows where you are, <b>Try this</b> means you are ready to step up.' : ''} Tap <b>How to</b> to see how each exercise is done.</p>
+      ${S.planId ? `<p class="panel small" style="max-width:none">Your teacher's workout of the week is loaded. Tap another level on any exercise to make it easier or harder.</p>` : ''}`}
+    <div class="panel setrow" style="margin-top:12px">${seg('work','Work',[30,40,45],'s')}${seg('rest','Rest',[15,20,30],'s')}${seg('rounds','Rounds',[1,2,3],'')}</div>
     ${REGIONS.map(r=>`<h2>${r}</h2>` + FAMILIES.filter(f=>f.region===r).map(famRow).join('')).join('')}
     <div class="dock" id="dock"></div>`);
   view.onclick = e => {
+    const how = e.target.closest('[data-how]');
+    if(how) return showHow(how.dataset.how);
     const chip = e.target.closest('.chip');
     if(chip) return toggleEx(chip.dataset.fam, +chip.dataset.lvl);
     const sb = e.target.closest('[data-set]');
     if(sb){ S.settings[sb.dataset.set] = +sb.dataset.val; $$(`[data-set="${sb.dataset.set}"]`).forEach(b=>b.setAttribute('aria-pressed', b===sb)); refreshBuilder(); }
   };
+  if(T) $('#cancelPlan').onclick = () => showClass(T);
   refreshBuilder();
 }
 function toggleEx(fam, lvl){
@@ -745,9 +908,18 @@ function refreshBuilder(){
   $('#dock').innerHTML = `<div class="dock-in">
     <div><b>${n} chosen</b> <span class="muted">${n<MIN_EX ? `pick ${MIN_EX-n} more` : `about ${mins} min`}</span>
       <div class="cover">${cov.map(o=>`<span class="${o.c?'on':''}">${o.r} ${o.c}</span>`).join('')}</div></div>
-    <div class="actions">${n?'<button class="btn ghost small" id="clear">Clear</button>':''}<button class="btn" id="start" ${n<MIN_EX||n>MAX_EX?'disabled':''}>Start</button></div></div>`;
-  $('#start').onclick = startWorkout;
-  if($('#clear')) $('#clear').onclick = () => { S.sel = []; refreshBuilder(); };
+    <div class="actions">${n?'<button class="btn ghost small" id="clear">Clear</button>':''}<button class="btn" id="start" ${n<MIN_EX||n>MAX_EX?'disabled':''}>${S.planFor?'Publish':'Start'}</button></div></div>`;
+  $('#start').onclick = S.planFor ? publishPlan : startWorkout;
+  if($('#clear')) $('#clear').onclick = () => { S.sel = []; S.planId = null; refreshBuilder(); };
+}
+async function publishPlan(){
+  const c = S.planFor, title = $('#ptitle').value.trim();
+  if(!title) return toast('Give the workout a title.');
+  const {work,rest,rounds} = S.settings;
+  const plan = {title, note:$('#pnote').value.trim(), work_sec:work, rest_sec:rest, rounds, exercises:S.sel.map(x=>({fid:x.fam, lvl:x.lvl}))};
+  $('#start').disabled = true;
+  try{ await Store.tSetPlan(S.teacher, c.id, plan); toast(`Published to ${c.name}`); S.sel = []; showClass(c); }
+  catch(e){ $('#start').disabled = false; fail('Could not publish', e); }
 }
 
 /* ===== Workout player ===== */
@@ -770,7 +942,7 @@ async function startWorkout(){
     phases.push({type:'work', dur:work, ex:i, round:r});
     if(!(r===rounds-1 && i===ex.length-1)) phases.push({type:'rest', dur:rest, ex:i, round:r});
   });
-  P = {ex, phases, i:-1, started:Date.now(), paused:false};
+  P = {ex, phases, i:-1, started:Date.now(), paused:false, planId:S.planId};
   const el=document.createElement('div'); el.id='player'; el.className='player';
   el.setAttribute('role','dialog'); el.setAttribute('aria-label','Workout timer');
   document.body.appendChild(el); document.body.style.overflow='hidden';
@@ -795,18 +967,20 @@ function renderPhase(){
     main = `<div class="p-phase">Rest</div><div class="p-time" id="pt">${ph.dur}</div>
       <div class="p-log"><p><b>${esc(e.name)}</b>: ${e.unit==='sec'?'seconds held':'reps done'}</p>
         <div class="stepper"><button type="button" data-d="-1" aria-label="One less">−</button><input id="sv" type="number" inputmode="numeric" min="0" value="${e.results[ph.round]}" aria-label="Your score"><button type="button" data-d="1" aria-label="One more">+</button></div></div>
-      ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span></div>`:''}`;
+      ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span><button type="button" class="link small" id="howp">How to do it</button></div>`:''}`;
   } else {
     el.className='player'; el.style.cssText = lc(e.level);
     const label = ph.type==='ready' ? 'Get ready' : (e.unit==='sec' ? 'Hold' : 'Go, count your reps');
     main = `<div class="p-phase" id="pph">${label}</div><div class="p-time" id="pt">${ph.dur}</div>
-      <div class="p-name">${esc(e.name)}</div><div class="p-sub">Level ${e.level}</div><p class="p-cue">${esc(e.cue)}</p>`;
+      <div class="p-name">${esc(e.name)}</div><div class="p-sub">Level ${e.level}</div><p class="p-cue">${esc(e.cue)}</p>
+      <button type="button" class="link" id="howp">How to do it</button>`;
   }
   el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
     <div class="p-top"><span>Round ${ph.round+1} of ${R}</span><span>Exercise ${ph.ex+1} of ${N}</span></div>
     <div class="p-main">${main}</div>
     <div class="p-ctrl"><button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button><button class="pbtn" id="skip">Skip</button><button class="pbtn" id="quit">Quit</button></div>`;
   $('#pp').onclick = togglePause;
+  if($('#howp')) $('#howp').onclick = () => { const x = ph.type==='rest' ? ne : e; if(!P.paused) togglePause(); showHow(x.fid, x.level); };
   $('#skip').onclick = () => startPhase(P.i+1);
   $('#quit').onclick = () => { if(confirm('Quit this workout? Nothing will be saved.')){ cleanupPlayer(); showBuilder(); } };
   if(ph.type==='rest'){
@@ -872,7 +1046,7 @@ function showSummary(){
     if(P.ex.some(e=>e.results.some(v=>v===''))) return toast('Fill in every score.');
     if(!rpe) return toast('Choose how hard it felt, from 1 to 10.');
     const exercises = P.ex.map(e=>({fid:e.fid, family:e.family, name:e.name, level:e.level, unit:e.unit, results:e.results.map(Number)}));
-    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, done_at:P.doneAt };
+    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, done_at:P.doneAt, ...(P.planId ? {plan_id:P.planId} : {}) };
     const pbs = exercises.filter(e=>prevPB[e.name]!=null && Math.max(...e.results)>prevPB[e.name]).length;
     const msg = `Workout saved${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
     $('#save').disabled = true;
@@ -881,6 +1055,133 @@ function showSummary(){
       if(isNetErr(e)){ pending.add(sess); toast('No connection. The workout is saved on this device and uploads when you are back online.'); return showStudentHome(); }
       $('#save').disabled=false; fail('Could not save', e);
     }
+  };
+}
+
+/* ===== How to guide (exercise demos) ===== */
+function videoLink(fid, l){
+  const u = DEMOS[`${fid}-${l.lvl}`];
+  return u && /^https:\/\//i.test(u)
+    ? `<a class="btn small" href="${esc(u)}" target="_blank" rel="noopener">Watch your teacher's demo</a>`
+    : `<a class="btn ghost small" href="https://www.youtube.com/results?search_query=${encodeURIComponent(l.n+' exercise how to')}" target="_blank" rel="noopener">Find a demo video</a>`;
+}
+function showHow(fid, only){
+  const f = FAM[fid]; if(!f) return;
+  const lv = only ? [f.levels[only-1]] : f.levels;
+  let d = $('#how');
+  if(!d){
+    d = document.createElement('dialog'); d.id = 'how'; d.className = 'how'; document.body.appendChild(d);
+    d.addEventListener('click', e => { if(e.target===d) d.close(); });
+  }
+  d.innerHTML = `<div class="how-in">
+    <div class="between"><div class="h3" style="margin:0">${esc(f.name)}: how to</div><button class="btn ghost small" data-close>Close</button></div>
+    ${lv.map(l=>`<div class="howlv" style="${lc(l.lvl)}"><b>Level ${l.lvl}: ${esc(l.n)}</b>${l.u==='sec'?' <span class="muted small">hold</span>':''}<p>${esc(l.c)}</p>${videoLink(fid,l)}</div>`).join('')}
+    <p class="warn"><b>Watch out:</b> ${esc(SAFETY[fid])}</p>
+    <p class="muted small" style="margin-bottom:0">Clear the space around you. Stop if something hurts, not just feels hard, and tell your teacher.</p></div>`;
+  d.querySelector('[data-close]').onclick = () => d.close();
+  d.showModal();
+}
+
+/* ===== Class challenges ===== */
+function challengeHTML(ch, teacher=false){
+  const today = ymd(new Date()), done = ch.progress >= ch.target, pct = Math.min(100, Math.round(ch.progress/ch.target*100));
+  const days = Math.round((new Date(ch.ends_on+'T00:00') - new Date(today+'T00:00'))/864e5) + 1;
+  const when = done ? 'Challenge complete!' : ch.starts_on > today ? `Starts ${fmtDay(ch.starts_on)}` : ch.ends_on < today ? 'Ended' : days===1 ? 'Last day' : `${days} days left`;
+  return `<div class="panel">
+    <div class="between"><b>${esc(ch.title)}</b><span class="small">${done ? `<b>${when}</b>` : `<span class="muted">${when}</span>`}</span></div>
+    <div class="bar${done?' done':''}" role="progressbar" aria-label="${esc(ch.title)}" aria-valuemin="0" aria-valuemax="${ch.target}" aria-valuenow="${ch.progress}"><i style="width:${pct}%"></i></div>
+    <div class="between small"><span><b>${num(ch.progress)}</b> of ${num(ch.target)} ${METRIC[ch.metric]}</span><span class="muted">${ch.classes.map(esc).join(', ')}${teacher ? `. ${fmtDay(ch.starts_on)} to ${fmtDay(ch.ends_on)}` : ''}</span></div>
+    ${teacher ? `<p style="margin:10px 0 0"><button class="btn ghost small" data-delch="${ch.id}">Delete</button></p>` : ''}</div>`;
+}
+
+/* ===== Fitness check results ===== */
+const fmtTest = (r, k) => r?.[k]==null ? '–' : k==='pushup' ? `${r.pushup}${r.pushup_type==='knee'?' (knee)':''}` : `${r[k]}${TESTS.find(t=>t.k===k).unit==='sec'?'s':''}`;
+function chg(a, b, k){
+  if(a?.[k]==null || b?.[k]==null || (k==='pushup' && a.pushup_type!==b.pushup_type)) return '';
+  const d = b[k]-a[k];
+  return `<span class="${d>0?'':'muted'}">${d>0?'+':''}${d}</span>`;
+}
+function testTableHTML(tests){
+  const first = tests[0].results, last = tests[tests.length-1].results;
+  return `<div class="tbl-wrap panel"><table>
+    <thead><tr><th>Check</th><th>Date</th>${TESTS.map(t=>`<th>${t.short}</th>`).join('')}</tr></thead>
+    <tbody>${tests.map(t=>`<tr><td>${esc(t.label)}</td><td>${fmtDate(t.created_at)}</td>${TESTS.map(x=>`<td>${fmtTest(t.results,x.k)}</td>`).join('')}</tr>`).join('')}
+    ${tests.length>1 ? `<tr><th colspan="2">Change since first</th>${TESTS.map(x=>`<td>${chg(first,last,x.k)}</td>`).join('')}</tr>` : ''}</tbody></table></div>`;
+}
+function classTestTable(st, tests){
+  const rows = st.map(s=>{
+    const mine = tests.filter(t=>t.student_id===s.id); if(!mine.length) return '';
+    const a = mine[0].results, b = mine[mine.length-1].results;
+    return `<tr><td>${esc(s.name)}</td><td>${mine.length}</td>${TESTS.map(t=>`<td>${mine.length>1 ? `${fmtTest(a,t.k)} → ${fmtTest(b,t.k)} ${chg(a,b,t.k)}` : fmtTest(b,t.k)}</td>`).join('')}</tr>`;
+  }).join('');
+  return `<table><thead><tr><th>Student</th><th>Checks</th>${TESTS.map(t=>`<th>${t.short}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+    <p class="muted small">With two or more checks: first → latest (change). Push-up changes only count when the same version was used.</p>`;
+}
+
+/* ===== Fitness check runner ===== */
+let FT = null;
+function showFitnessCheck(){
+  try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume && audio.resume(); }catch(e){}
+  keepAwake();
+  FT = {i:0, r:{pushup_type:'full'}, timer:null};
+  fitIntro();
+}
+function fitStop(){ if(FT?.timer){ clearInterval(FT.timer); FT.timer = null; } }
+function fitEnd(){ fitStop(); FT = null; try{ wake?.release(); }catch(e){} wake = null; }
+const fitHead = () => `<p class="muted" style="margin-bottom:0">Fitness check: ${esc(S.extras.test_label)}. Test ${FT.i+1} of ${TESTS.length}</p>`;
+function fitIntro(){
+  fitStop(); const t = TESTS[FT.i];
+  setView(`${fitHead()}<h1>${esc(t.name)}</h1><p>${esc(t.text)}</p>
+    ${t.k==='pushup' ? `<p><span class="seg" role="group" aria-label="Push-up version">${['full','knee'].map(v=>`<button type="button" data-pt="${v}" aria-pressed="${FT.r.pushup_type===v}">${v==='full'?'Full push-ups':'Knee push-ups'}</button>`).join('')}</span></p>` : ''}
+    <p class="muted">${t.unit==='reps' ? 'You have 1 minute. Count your reps out loud.' : `Hold as long as you can. The timer stops by itself at ${TEST_MAX_HOLD/60} minutes.`}</p>
+    <div class="btns"><button class="btn" id="go">Start</button><button class="btn ghost" id="howT">How to</button></div>
+    <p style="margin-top:28px"><button class="link small" id="skipT">Skip this test (injured or unable)</button></p>
+    <p><button class="link small" id="quitT">Quit the fitness check</button></p>`);
+  $$('[data-pt]').forEach(b=>b.onclick=()=>{ FT.r.pushup_type=b.dataset.pt; $$('[data-pt]').forEach(x=>x.setAttribute('aria-pressed',x===b)); });
+  $('#howT').onclick = () => showHow(t.how[0], t.k==='pushup' && FT.r.pushup_type==='knee' ? 2 : t.how[1]);
+  $('#go').onclick = fitRun;
+  $('#skipT').onclick = () => { FT.r[t.k] = null; fitNext(); };
+  $('#quitT').onclick = () => { if(confirm('Quit the fitness check? Nothing will be saved.')){ fitEnd(); showStudentHome(); } };
+}
+function fitRun(){
+  const t = TESTS[FT.i], reps = t.unit==='reps', t0 = Date.now()+3000;
+  setView(`${fitHead()}<h1>${esc(t.name)}</h1><div class="big-time" id="tt" aria-live="off">3</div>
+    <p class="center" id="tmsg">Get ready</p><p class="center"><button class="btn" id="stop">Cancel</button></p>`);
+  let shown = null, started = false;
+  const finish = sec => { fitStop(); beep(1046,.35); fitResult(reps ? '' : sec); };
+  $('#stop').onclick = () => { if(!started) return fitIntro(); finish(Math.min(TEST_MAX_HOLD, Math.floor((Date.now()-t0)/1000))); };
+  FT.timer = setInterval(() => {
+    const el = $('#tt'); if(!el) return fitStop();
+    const now = Date.now();
+    if(now < t0){ const s = Math.ceil((t0-now)/1000); if(s!==shown){ shown=s; el.textContent=s; beep(660,.1); } return; }
+    if(!started){ started = true; beep(1046,.25); $('#tmsg').textContent = reps ? 'Go! Count your reps' : 'Hold!'; $('#stop').textContent = reps ? 'Stop early' : 'Stop'; }
+    const sec = Math.floor((now-t0)/1000);
+    if(reps){ const left = Math.max(0, TEST_REPS_SEC-sec); if(left!==shown){ shown=left; el.textContent=left; if(left>0 && left<=3) beep(660,.1); } if(left<=0) finish(); }
+    else { if(sec!==shown){ shown=sec; el.textContent=sec; } if(sec>=TEST_MAX_HOLD) finish(TEST_MAX_HOLD); }
+  }, 150);
+}
+function fitResult(v){
+  const t = TESTS[FT.i];
+  setView(`${fitHead()}<h1>${esc(t.name)}</h1>
+    <label class="field"><span>${t.unit==='reps' ? 'How many did you do?' : 'Seconds held'}</span><input id="res" class="score" type="number" min="0" inputmode="numeric" value="${v}"></label>
+    <div class="btns"><button class="btn" id="next">${FT.i<TESTS.length-1 ? 'Next test' : 'See my results'}</button><button class="btn ghost" id="redo">Redo this test</button></div>`);
+  const inp = $('#res'); inp.focus();
+  const go = () => { if(inp.value==='') return toast('Type your score.'); FT.r[t.k] = Math.max(0, parseInt(inp.value,10)||0); fitNext(); };
+  $('#next').onclick = go; inp.onkeydown = e => { if(e.key==='Enter') go(); };
+  $('#redo').onclick = fitIntro;
+}
+function fitNext(){ if(FT.i < TESTS.length-1){ FT.i++; fitIntro(); } else fitSummary(); }
+function fitSummary(){
+  const prev = S.extras.tests[S.extras.tests.length-1]?.results;
+  setView(`<h1>Fitness check done</h1><p class="muted">${esc(S.extras.test_label)}. Check your results, then save.</p>
+    <div class="tbl-wrap panel"><table><thead><tr><th>Test</th><th>Today</th>${prev ? '<th>Last check</th><th>Change</th>' : ''}</tr></thead>
+    <tbody>${TESTS.map(t=>`<tr><td>${esc(t.name)}</td><td><b>${fmtTest(FT.r,t.k)}</b></td>${prev ? `<td>${fmtTest(prev,t.k)}</td><td>${chg(prev,FT.r,t.k)}</td>` : ''}</tr>`).join('')}</tbody></table></div>
+    <p style="margin-top:20px"><button class="btn" id="saveT">Save results</button> <button class="btn ghost" id="discT">Discard</button></p>`);
+  $('#discT').onclick = () => { if(confirm('Discard these results?')){ fitEnd(); showStudentHome(); } };
+  $('#saveT').onclick = async () => {
+    $('#saveT').disabled = true;
+    try{ await Store.addTest(S.token, FT.r); fitEnd(); toast('Fitness check saved'); showStudentHome(); }
+    catch(e){ $('#saveT').disabled = false; fail(isNetErr(e) ? 'No connection. Reconnect and press Save again' : 'Could not save', e); }
   };
 }
 
@@ -899,7 +1200,7 @@ function showTeacherLogin(){
 }
 const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<option value="${n}" ${n===v?'selected':''}>${n} per week</option>`).join('')}</select>`;
 async function showTeacherHome(){
-  header();
+  header(); S.planFor = null;
   setView(`<h1>Classes</h1>
     <div class="panel"><div class="h3">Add a class</div>
       <div class="row3"><label class="field"><span>Class name</span><input id="cn" placeholder="e.g. 9C"></label>
@@ -908,6 +1209,11 @@ async function showTeacherHome(){
       <button class="btn" id="add">Add class</button></div>
     <div class="between"><h2>Your classes</h2><button class="btn ghost small" id="all">Download all classes (.xlsx)</button></div>
     <div id="list" class="muted">Loading…</div>
+    <h2>Class challenges</h2>
+    <p class="muted">Team goals for one class or several. Students see a shared progress bar, never individual rankings.</p>
+    <div id="chl" class="muted">Loading…</div>
+    <h2>Exercise demos</h2>
+    <div id="demosBox" class="muted">Loading…</div>
     <details class="panel" style="margin-top:32px"><summary>Change teacher PIN</summary>
       <div class="row2"><label class="field"><span>Current PIN</span><input id="op" type="password" autocomplete="current-password"></label>
       <label class="field"><span>New PIN, at least 6 characters</span><input id="np" type="password" autocomplete="new-password"></label></div>
@@ -923,30 +1229,78 @@ async function showTeacherHome(){
     try{ await Store.tChangePin(S.teacher, $('#op').value, $('#np').value); $('#op').value=$('#np').value=''; toast('Teacher PIN changed.'); }
     catch(e){ fail('Could not change the PIN', e); }
   };
-  try{
-    const classes = await Store.tClasses(S.teacher);
-    if(!classes.length){ $('#list').innerHTML = '<p>No classes yet. Add your first class above.</p>'; return; }
-    $('#list').innerHTML = `<div class="clist">${classes.map(c=>`<div class="panel ccard">
-      <div><b>${esc(c.name)}</b><div class="muted">${c.students} students, ${c.workouts} workouts. Code: ${esc(c.code)}. Goal: ${c.weekly_goal} per week</div></div>
-      <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`).join('')}</div>`;
-    $$('[data-open]').forEach(b=>b.onclick=()=>showClass(classes.find(c=>c.id===b.dataset.open)));
-    $$('[data-dl]').forEach(b=>b.onclick=()=>downloadClass(classes.find(c=>c.id===b.dataset.dl)));
-  }catch(e){ if(isExpired(e)) return logout(e.message); $('#list').textContent = 'Could not load classes: '+e.message; }
+  loadDemos().then(renderDemos);
+  let classes;
+  try{ classes = await Store.tClasses(S.teacher); }
+  catch(e){ if(isExpired(e)) return logout(e.message); $('#list').textContent = 'Could not load classes: '+e.message; $('#chl').textContent = ''; return; }
+  $('#list').innerHTML = !classes.length ? '<p>No classes yet. Add your first class above.</p>' : `<div class="clist">${classes.map(c=>`<div class="panel ccard">
+    <div><b>${esc(c.name)}</b><div class="muted">${c.students} students, ${c.workouts} workouts. Code: ${esc(c.code)}. Goal: ${c.weekly_goal} per week</div></div>
+    <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`).join('')}</div>`;
+  $$('[data-open]').forEach(b=>b.onclick=()=>showClass(classes.find(c=>c.id===b.dataset.open)));
+  $$('[data-dl]').forEach(b=>b.onclick=()=>downloadClass(classes.find(c=>c.id===b.dataset.dl)));
+  loadChallenges(classes);
+}
+async function loadChallenges(classes){
+  const box = $('#chl'); if(!box) return;
+  if(!classes.length){ box.innerHTML = '<p>Add a class first.</p>'; return; }
+  let list;
+  try{ list = await Store.tChallenges(S.teacher); }
+  catch(e){ if(isExpired(e)) return logout(e.message); box.textContent = 'Could not load challenges: '+e.message; return; }
+  box.className = '';
+  box.innerHTML = (list.length ? `<div class="clist">${list.map(ch=>challengeHTML(ch, true)).join('')}</div>` : '') + `
+    <details class="panel" style="margin-top:12px" ${list.length?'':'open'}><summary>New challenge</summary>
+      <label class="field"><span>Title</span><input id="chT" maxlength="100" placeholder="e.g. Year 9: 1,000 workouts this half-term"></label>
+      <div class="row2"><label class="field"><span>Count</span><select id="chM"><option value="workouts">Workouts</option><option value="reps">Reps</option><option value="minutes">Minutes of training</option></select></label>
+        <label class="field"><span>Target</span><input id="chN" type="number" min="1" inputmode="numeric" placeholder="e.g. 300"></label></div>
+      <div class="row2"><label class="field"><span>Starts</span><input id="chS" type="date" value="${ymd(new Date())}"></label>
+        <label class="field"><span>Ends</span><input id="chE" type="date" value="${ymd(addDays(42))}"></label></div>
+      <fieldset class="plain"><legend>Classes taking part</legend>${classes.map(c=>`<label class="check"><input type="checkbox" name="chC" value="${c.id}"> ${esc(c.name)}</label>`).join('')}</fieldset>
+      <button class="btn small" id="chAdd">Create challenge</button></details>`;
+  $$('[data-delch]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Delete this challenge? Workouts are not affected.')) return;
+    try{ await Store.tDeleteChallenge(S.teacher, b.dataset.delch); loadChallenges(classes); }catch(e){ fail('Could not delete', e); }
+  });
+  $('#chAdd').onclick = async () => {
+    const ch = {title:$('#chT').value.trim(), metric:$('#chM').value, target:parseInt($('#chN').value,10)||0,
+      starts_on:$('#chS').value, ends_on:$('#chE').value, class_ids:$$('[name="chC"]:checked').map(x=>x.value)};
+    if(!ch.title) return toast('Give the challenge a title.');
+    if(ch.target<1) return toast('Set a target above 0.');
+    if(!ch.class_ids.length) return toast('Choose at least one class.');
+    if(!ch.starts_on || !ch.ends_on || ch.ends_on<ch.starts_on) return toast('The end date must be on or after the start date.');
+    try{ await Store.tAddChallenge(S.teacher, ch); toast('Challenge created'); loadChallenges(classes); }catch(e){ fail('Could not create the challenge', e); }
+  };
+}
+function renderDemos(){
+  const box = $('#demosBox'); if(!box) return;
+  const n = Object.keys(DEMOS).length;
+  box.className = '';
+  box.innerHTML = `<details class="panel"><summary>Demo video links (${n} of ${FAMILIES.length*4} set)</summary>
+    <p class="muted small">Every exercise has a How to guide with the steps and a safety point. Without a link it offers a YouTube search. Paste your own video (YouTube, Google Drive, school site) to show your demo instead. Links must start with https://. Changes save when you leave the box.</p>
+    ${FAMILIES.map(f=>`<fieldset class="dfam"><legend>${esc(f.name)}</legend>${f.levels.map(l=>`<label class="field"><span class="small">Level ${l.lvl}: ${esc(l.n)}</span><input type="url" inputmode="url" placeholder="https://" data-demo="${f.id}-${l.lvl}" value="${esc(DEMOS[f.id+'-'+l.lvl]||'')}"></label>`).join('')}</fieldset>`).join('')}</details>`;
+  $$('[data-demo]').forEach(i=>i.onchange=async()=>{
+    const key = i.dataset.demo, u = i.value.trim();
+    if(u && !/^https:\/\//i.test(u)) return toast('The link must start with https://');
+    try{ await Store.tSetDemo(S.teacher, key, u); if(u) DEMOS[key]=u; else delete DEMOS[key]; toast(u ? 'Demo link saved' : 'Demo link removed'); }
+    catch(e){ fail('Could not save the link', e); }
+  });
 }
 async function showClass(c){
+  S.planFor = null;
   setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
     <h1>${esc(c.name)}</h1>
     <p><button class="btn" id="dl">Download ${esc(c.name)} (.xlsx)</button></p>
-    <div class="panel"><div class="h3">Class settings</div>
-      <div class="row2"><label class="field"><span>Class code</span><input id="ecode" value="${esc(c.code)}"></label>
-      <label class="field"><span>Weekly goal</span>${goalSelect('egoal', c.weekly_goal)}</label></div>
-      <button class="btn small" id="save">Save settings</button></div>
+    <h2>Workout of the week</h2><div id="plan" class="muted">Loading…</div>
+    <h2>Fitness check</h2><div id="fitp" class="muted">Loading…</div>
     <h2>Students</h2>
     <div class="panel"><label class="field"><span>Add students, one name per line</span><textarea id="names" rows="5" placeholder="Paste names from your class list"></textarea></label>
       <button class="btn small" id="addn">Add students</button></div>
     <div id="studs" class="tbl-wrap muted" style="margin-top:12px">Loading…</div>
     <h2>Workouts</h2><div id="sess" class="tbl-wrap muted">Loading…</div>
-    <p style="margin-top:40px"><button class="btn danger small" id="del">Delete class and all its data</button></p>`);
+    <details class="panel" style="margin-top:32px"><summary>Class settings</summary>
+      <div class="row2"><label class="field"><span>Class code</span><input id="ecode" value="${esc(c.code)}"></label>
+      <label class="field"><span>Weekly goal</span>${goalSelect('egoal', c.weekly_goal)}</label></div>
+      <button class="btn small" id="save">Save settings</button></details>
+    <p style="margin-top:24px"><button class="btn danger small" id="del">Delete class and all its data</button></p>`);
   $('#back').onclick = showTeacherHome;
   $('#dl').onclick = () => downloadClass(c);
   $('#save').onclick = async () => {
@@ -960,46 +1314,82 @@ async function showClass(c){
     try{ const n = await Store.tAddStudents(S.teacher, c.id, names); toast(`${n} student${n===1?'':'s'} added`); $('#names').value=''; load(); }catch(e){ fail('Could not add students', e); }
   };
   async function load(){
-    try{
-      const [st,ss] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id)]);
-      const goal = c.weekly_goal||3;
-      $('#studs').innerHTML = st.length ? `<table><thead><tr><th>Name</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
-        ${st.map(s=>{ const mine=ss.filter(x=>x.student_id===s.id), w=weekStats(mine,goal), A=analyse(mine);
-          return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
-          <td>${mine.length?avgLvl(mine[0]):''}</td><td>${mine.length?readyCount(A):''}</td><td>${mine[0]?fmtDate(mine[0].created_at):''}</td><td>${s.has_pin?'Set':'Not set'}</td>
-          <td class="actions">${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
-        : '<p>No students yet. Paste your class list above.</p>';
-      $('#sess').innerHTML = ss.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th><th>Minutes</th></tr></thead><tbody>
-        ${ss.map(s=>`<tr><td>${fmtDate(s.created_at)}</td><td>${fmtTime(s.created_at)}</td><td>${esc(s.student_name)}</td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${Math.round(s.duration_sec/60)}</td></tr>`).join('')}</tbody></table>`
-        : '<p>No workouts logged yet.</p>';
-      $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id)); });
-      $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
-      $$('[data-rm]').forEach(b=>b.onclick=async()=>{ const s=st.find(x=>x.id===b.dataset.rm); if(confirm(`Remove ${s.name}? Their past workouts stay in the results.`)){ try{ await Store.tRemoveStudent(S.teacher, s.id); load(); }catch(e){ fail('Could not remove', e); } } });
-    }catch(e){ if(isExpired(e)) return logout(e.message); $('#studs').textContent = 'Could not load: '+e.message; }
+    let st, ss, X;
+    try{ [st, ss, X] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id), Store.tClassExtras(S.teacher, c.id)]); }
+    catch(e){ if(isExpired(e)) return logout(e.message); $('#studs').textContent = $('#plan').textContent = $('#fitp').textContent = 'Could not load: '+e.message; return; }
+    const goal = c.weekly_goal||3;
+
+    // Workout of the week
+    const P = X.plan;
+    const doneBy = P ? new Set(ss.filter(s=>s.plan_id===P.id && s.student_id).map(s=>s.student_id)).size : 0;
+    $('#plan').className = '';
+    $('#plan').innerHTML = P ? `<div class="panel"><div class="h3" style="margin:0 0 4px">${esc(P.title)}</div>${P.note ? `<p style="margin:0 0 6px">${esc(P.note)}</p>` : ''}
+        <p class="muted small" style="margin:0 0 8px">Set on ${fmtDate(P.created_at)}. ${P.exercises.length} exercises, ${P.rounds} round${P.rounds===1?'':'s'}, ${P.work_sec}s work, ${P.rest_sec}s rest. Done by <b>${doneBy} of ${st.length}</b> students.</p>
+        <p class="small" style="margin:0 0 12px;max-width:none">${P.exercises.map(x=>{ const l=FAM[x.fid]?.levels[x.lvl-1]; return l ? `<span style="white-space:nowrap"><span class="lvtag" style="${lc(x.lvl)}">L${x.lvl}</span> ${esc(l.n)}</span>` : ''; }).join(' &nbsp; ')}</p>
+        <div class="btns"><button class="btn small" id="newPlan">Change it</button><button class="btn ghost small" id="clearPlan">Remove</button></div></div>`
+      : `<div class="panel"><p style="margin:0 0 10px">No workout set. Pick 8 to 12 exercises and students see it at the top of their page, ready to start.</p><button class="btn small" id="newPlan">Set a workout of the week</button></div>`;
+    $('#newPlan').onclick = () => {
+      S.planFor = {...c, plan:P};
+      S.sel = P ? P.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl})) : [];
+      S.settings = P ? {work:P.work_sec, rest:P.rest_sec, rounds:P.rounds} : {work:40, rest:20, rounds:2};
+      showBuilder();
+    };
+    if($('#clearPlan')) $('#clearPlan').onclick = async () => { if(!confirm('Remove the workout of the week?')) return; try{ await Store.tClearPlan(S.teacher, c.id); load(); }catch(e){ fail('Could not remove', e); } };
+
+    // Fitness check
+    const open = X.test_label, doneNow = open ? new Set(X.tests.filter(t=>t.label===open).map(t=>t.student_id)).size : 0;
+    $('#fitp').className = '';
+    $('#fitp').innerHTML = `<div class="panel">${open
+      ? `<p style="margin:0 0 10px"><b>Open: ${esc(open)}</b>. Done by ${doneNow} of ${st.length} students. Students see it at the top of their page.</p><button class="btn ghost small" id="closeFit">Close the check</button>`
+      : `<p class="muted small" style="margin:0 0 10px">Five tests: squats and push-ups in 1 minute, plank and wall sit holds, jumping jacks in 1 minute. Open a check at the start and end of each term to measure progress.</p>
+         <label class="field" style="max-width:340px"><span>Name of this check</span><input id="flabel" maxlength="60" placeholder="e.g. Start of Term 1"></label><button class="btn small" id="openFit">Open the check</button>`}
+      ${X.tests.length ? `<div class="tbl-wrap" style="margin-top:16px">${classTestTable(st, X.tests)}</div>` : ''}</div>`;
+    if($('#closeFit')) $('#closeFit').onclick = async () => { try{ await Store.tSetTestLabel(S.teacher, c.id, ''); toast('Fitness check closed'); load(); }catch(e){ fail('Could not close', e); } };
+    if($('#openFit')) $('#openFit').onclick = async () => {
+      const label = $('#flabel').value.trim(); if(!label) return toast('Name the check, for example Start of Term 1.');
+      try{ await Store.tSetTestLabel(S.teacher, c.id, label); toast('Fitness check open'); load(); }catch(e){ fail('Could not open', e); }
+    };
+
+    // Students and workouts
+    $('#studs').innerHTML = st.length ? `<table><thead><tr><th>Name</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
+      ${st.map(s=>{ const mine=ss.filter(x=>x.student_id===s.id), w=weekStats(mine,goal), A=analyse(mine);
+        return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
+        <td>${mine.length?avgLvl(mine[0]):''}</td><td>${mine.length?readyCount(A):''}</td><td>${mine[0]?fmtDate(mine[0].created_at):''}</td><td>${s.has_pin?'Set':'Not set'}</td>
+        <td class="actions">${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
+      : '<p>No students yet. Paste your class list above.</p>';
+    $('#sess').innerHTML = ss.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th><th>Minutes</th></tr></thead><tbody>
+      ${ss.map(s=>`<tr><td>${fmtDate(s.created_at)}</td><td>${fmtTime(s.created_at)}</td><td>${esc(s.student_name)}${s.plan_id?' <em class="tag">Set workout</em>':''}</td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${Math.round(s.duration_sec/60)}</td></tr>`).join('')}</tbody></table>`
+      : '<p>No workouts logged yet.</p>';
+    $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id), X.tests.filter(t=>t.student_id===s.id)); });
+    $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
+    $$('[data-rm]').forEach(b=>b.onclick=async()=>{ const s=st.find(x=>x.id===b.dataset.rm); if(confirm(`Remove ${s.name}? Their past workouts stay in the results.`)){ try{ await Store.tRemoveStudent(S.teacher, s.id); load(); }catch(e){ fail('Could not remove', e); } } });
   }
   load();
 }
-function showTeacherStudent(c, s, sessions){
+function showTeacherStudent(c, s, sessions, tests){
   setView(`<p><button class="btn ghost small" id="back">Back to ${esc(c.name)}</button></p>
     <h1>${esc(s.name)}</h1><p class="muted">${esc(c.name)}</p>
-    ${progressHTML(sessions, c.weekly_goal||3, analyse(sessions), false)}`);
+    ${progressHTML(sessions, c.weekly_goal||3, analyse(sessions), false)}
+    <h2>Fitness checks</h2>${tests.length ? testTableHTML(tests) : '<p class="muted">No fitness checks yet.</p>'}`);
   wireCharts();
   $('#back').onclick = () => showClass(c);
 }
 
 /* ===== Excel export ===== */
-const H_WORK = ['Date','Time','Student','Exercises','Rounds','Work (s)','Rest (s)','Average level','Total reps','Total hold (s)','Duration (min)','Effort (1-10)'];
+const H_WORK = ['Date','Time','Student','Exercises','Rounds','Work (s)','Rest (s)','Average level','Total reps','Total hold (s)','Duration (min)','Effort (1-10)','Workout of the week'];
 const H_EX = ['Date','Time','Student','Movement','Exercise','Level','Unit','Round 1','Round 2','Round 3','Best','Total'];
 const H_ST = ['Student','Workouts','This week','Weekly goal','Streak (weeks)','Last workout','Total reps','First average level','Latest average level','Ready to level up'];
 const H_PR = ['Student','Movement','Current level','Best round','Unit','Times at this level','Next step'];
+const H_FIT = ['Date','Student','Check','Squats (1 min)','Push-ups (1 min)','Push-up version','Plank (s)','Wall sit (s)','Jumping jacks (1 min)'];
 const STATUS_TXT = {ready:'Ready for next level', working:'Keep going', top:'Top level', mastered:'Top level mastered'};
-const rowsWork = ss => ss.map(s=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Exercises':s.exercises.length,'Rounds':s.rounds,'Work (s)':s.work_sec,'Rest (s)':s.rest_sec,'Average level':avgLvl(s),'Total reps':s.total_reps,'Total hold (s)':s.total_hold_sec,'Duration (min)':+(s.duration_sec/60).toFixed(1),'Effort (1-10)':s.rpe}));
+const rowsWork = ss => ss.map(s=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Exercises':s.exercises.length,'Rounds':s.rounds,'Work (s)':s.work_sec,'Rest (s)':s.rest_sec,'Average level':avgLvl(s),'Total reps':s.total_reps,'Total hold (s)':s.total_hold_sec,'Duration (min)':+(s.duration_sec/60).toFixed(1),'Effort (1-10)':s.rpe,'Workout of the week':s.plan_id?'Yes':''}));
 const rowsEx = ss => ss.flatMap(s=>s.exercises.map(e=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Movement':e.family,'Exercise':e.name,'Level':e.level,'Unit':e.unit==='sec'?'seconds':'reps','Round 1':e.results[0]??'','Round 2':e.results[1]??'','Round 3':e.results[2]??'','Best':Math.max(...e.results),'Total':sum(e.results)})));
 const rowsSt = (st,ss,goal) => st.map(x=>{ const m=ss.filter(s=>s.student_id===x.id), w=weekStats(m,goal);
   return {'Student':x.name,'Workouts':m.length,'This week':w.thisWeek,'Weekly goal':goal,'Streak (weeks)':w.streak,'Last workout':m[0]?fmtDate(m[0].created_at):'','Total reps':sum(m.map(s=>s.total_reps)),
     'First average level':m.length?avgLvl(m[m.length-1]):'','Latest average level':m.length?avgLvl(m[0]):'','Ready to level up':m.length?readyCount(analyse(m)):''}; });
 const rowsPr = (st,ss) => st.flatMap(x=>{ const A=analyse(ss.filter(s=>s.student_id===x.id));
   return FAMILIES.map(f=>A.fams[f.id]).filter(Boolean).map(f=>({'Student':x.name,'Movement':FAM[f.fid].name,'Current level':f.level,'Best round':f.best,'Unit':f.unit==='sec'?'seconds':'reps','Times at this level':f.times,'Next step':STATUS_TXT[f.status]})); });
+const rowsFit = tests => tests.map(t=>{ const r=t.results; return {'Date':fmtDate(t.created_at),'Student':t.student_name,'Check':t.label,'Squats (1 min)':r.squat??'','Push-ups (1 min)':r.pushup??'','Push-up version':r.pushup==null?'':r.pushup_type,'Plank (s)':r.plank??'','Wall sit (s)':r.wallsit??'','Jumping jacks (1 min)':r.jacks??''}; });
 function sheet(rows, headers){
   const ws = rows.length ? XLSX.utils.json_to_sheet(rows,{header:headers}) : XLSX.utils.aoa_to_sheet([headers]);
   ws['!cols'] = headers.map(h=>({wch: Math.min(40, Math.max(h.length, ...rows.map(r=>String(r[h]??'').length)) + 2)}));
@@ -1014,10 +1404,11 @@ function sheetName(name, used){
 async function downloadClass(c){
   if(!window.XLSX) return toast('The Excel library did not load. Check your internet connection and reload.');
   try{
-    const [st,ss] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id)]);
+    const [st,ss,X] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id), Store.tClassExtras(S.teacher, c.id)]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheet(rowsSt(st,ss,c.weekly_goal||3),H_ST), 'Students');
     XLSX.utils.book_append_sheet(wb, sheet(rowsPr(st,ss),H_PR), 'Progress');
+    XLSX.utils.book_append_sheet(wb, sheet(rowsFit(X.tests),H_FIT), 'Fitness checks');
     XLSX.utils.book_append_sheet(wb, sheet(rowsWork(ss),H_WORK), 'Workouts');
     XLSX.utils.book_append_sheet(wb, sheet(rowsEx(ss),H_EX), 'Exercise log');
     XLSX.writeFile(wb, `${fileSafe(c.name)} bodyweight results.xlsx`);
@@ -1037,6 +1428,7 @@ async function downloadAll(){
 /* ===== Start ===== */
 (async function boot(){
   netBanner();
+  loadDemos();
   const t = tabStore.get('bwb-teacher');
   if(t){ S.teacher = t; return showTeacherHome(); }
   const a = auth.get();

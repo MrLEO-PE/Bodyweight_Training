@@ -16,18 +16,26 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
 - **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.
+- **How to guides:** every movement has a guide with the steps for all 4 levels, a safety point and a demo video link. It opens from the builder and from the timer, which pauses while the guide is open.
+- **Workout of the week:** the workout set by the teacher appears at the top of the student's page. Students do it as set or at their own levels.
+- **Class challenges:** shared team goals with a progress bar and no individual rankings.
+- **Fitness checks:** five tests (squats and push-ups in 1 minute, plank and wall sit holds, jumping jacks in 1 minute), each with a guided timer. Students see their change since their first check.
 
 ## What teachers get
 
 - Classes with a join code and a weekly goal (1 to 7 workouts)
 - Paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
 - A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
-- Excel export per class (Students, Progress, Workouts, Exercise log) or one file for all classes
+- **Workout of the week** per class: build it with the same builder, add a message, and see how many students have done it.
+- **Class challenges:** count workouts, reps or minutes across one or more classes between two dates, for example "Year 9: 1,000 workouts this half-term".
+- **Fitness checks:** open a check for a class with a name such as "Start of Term 1" and close it when done. The class page shows each student's first and latest results and the change.
+- **Demo videos:** paste your own video link for any of the 80 exercises. Without one, students get a YouTube search.
+- Excel export per class (Students, Progress, Fitness checks, Workouts, Exercise log) or one file for all classes
 
 ## Setup
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor**, paste all of [supabase/setup.sql](supabase/setup.sql) and run it. You can run it again safely, and it upgrades tables created by the earlier version of the app.
+2. Open **SQL Editor**, paste all of [supabase/setup.sql](supabase/setup.sql) and run it. You can run it again safely, and it upgrades tables created by earlier versions of the app. **Run it again after every app update.**
 3. In **Project Settings > API**, copy the Project URL and the `anon` public key into `CONFIG` at the top of the script in `index.html`.
 4. Host `index.html` anywhere static, for example GitHub Pages (Settings > Pages > deploy from `main`), Netlify or the school website.
 5. Log in as teacher with the PIN **`change-me-now`**, then change it straight away under **Change teacher PIN**. Use at least 6 characters and share it only with PE staff.
