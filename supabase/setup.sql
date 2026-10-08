@@ -31,6 +31,13 @@ create table if not exists public.bw_classes (
 alter table public.bw_classes add column if not exists weekly_goal int not null default 3;
 alter table public.bw_classes add column if not exists created_at timestamptz not null default now();
 
+-- Year group of each class or form, e.g. 'Year 10' for form 10C.
+-- Classes named like '10C', 'Y10' or 'Year 10' get it filled in automatically.
+alter table public.bw_classes add column if not exists year_group text;
+update public.bw_classes
+   set year_group = 'Year ' || substring(trim(name) from '(?i)^(?:year|yr|y)?\s*(\d{1,2})\s*[a-z]{0,3}$')::int
+ where year_group is null and trim(name) ~* '^(year|yr|y)?\s*\d{1,2}\s*[a-z]{0,3}$';
+
 create table if not exists public.bw_students (
   id uuid primary key default gen_random_uuid(),
   class_id uuid not null references public.bw_classes(id) on delete cascade,
@@ -108,6 +115,8 @@ create table if not exists public.bw_challenges (
   ends_on date not null,
   created_at timestamptz not null default now()
 );
+-- Whole year groups taking part: every class in that year group counts, including ones added later
+alter table public.bw_challenges add column if not exists year_groups text[] not null default '{}';
 
 -- Fitness checks: the teacher opens one per class with a label such as 'Start of Term 1'
 alter table public.bw_classes add column if not exists test_label text;
@@ -178,10 +187,11 @@ end $$;
 
 /* ---------- Student functions ---------- */
 
+drop function if exists public.bw_list_classes();
 create or replace function public.bw_list_classes()
-returns table (id uuid, name text)
+returns table (id uuid, name text, year_group text)
 language sql stable security definer set search_path = public as $$
-  select c.id, c.name from bw_classes c order by c.name
+  select c.id, c.name, c.year_group from bw_classes c order by c.name
 $$;
 
 create or replace function public.bw_list_students(p_class_id uuid, p_code text)
@@ -339,19 +349,26 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
+create or replace function public.bw__year(v text) returns text
+language sql immutable as $$
+  select nullif(left(regexp_replace(trim(coalesce(v, '')), '\s+', ' ', 'g'), 40), '')
+$$;
+
+drop function if exists public.bw_t_classes(text);
 create or replace function public.bw_t_classes(p_token text)
-returns table (id uuid, name text, code text, weekly_goal int, students bigint, workouts bigint)
+returns table (id uuid, name text, code text, weekly_goal int, year_group text, students bigint, workouts bigint)
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   return query
-    select c.id, c.name, c.code, c.weekly_goal,
+    select c.id, c.name, c.code, c.weekly_goal, c.year_group,
            (select count(*) from bw_students s where s.class_id = c.id),
            (select count(*) from bw_sessions x where x.class_id = c.id)
       from bw_classes c order by c.name;
 end $$;
 
-create or replace function public.bw_t_add_class(p_token text, p_name text, p_code text, p_goal int)
+drop function if exists public.bw_t_add_class(text, text, text, int);
+create or replace function public.bw_t_add_class(p_token text, p_name text, p_code text, p_goal int, p_year text)
 returns uuid
 language plpgsql security definer set search_path = public, extensions as $$
 declare new_id uuid;
@@ -360,19 +377,24 @@ begin
   if length(trim(coalesce(p_name, ''))) = 0 or length(trim(coalesce(p_code, ''))) < 3 then
     raise exception 'Enter a class name and a class code of at least 3 characters.';
   end if;
-  insert into bw_classes (name, code, weekly_goal)
-  values (trim(p_name), trim(p_code), least(greatest(coalesce(p_goal, 3), 1), 7))
+  insert into bw_classes (name, code, weekly_goal, year_group)
+  values (left(trim(p_name), 60), trim(p_code), least(greatest(coalesce(p_goal, 3), 1), 7), bw__year(p_year))
   returning bw_classes.id into new_id;
   return new_id;
 end $$;
 
-create or replace function public.bw_t_update_class(p_token text, p_id uuid, p_code text, p_goal int)
+drop function if exists public.bw_t_update_class(text, uuid, text, int);
+create or replace function public.bw_t_update_class(p_token text, p_id uuid, p_name text, p_code text, p_goal int, p_year text)
 returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
+  if length(trim(coalesce(p_name, ''))) = 0 then raise exception 'The class needs a name.'; end if;
   if length(trim(coalesce(p_code, ''))) < 3 then raise exception 'The class code needs at least 3 characters.'; end if;
-  update bw_classes set code = trim(p_code), weekly_goal = least(greatest(coalesce(p_goal, 3), 1), 7) where id = p_id;
+  update bw_classes
+     set name = left(trim(p_name), 60), code = trim(p_code),
+         weekly_goal = least(greatest(coalesce(p_goal, 3), 1), 7), year_group = bw__year(p_year)
+   where id = p_id;
 end $$;
 
 create or replace function public.bw_t_delete_class(p_token text, p_id uuid) returns void
@@ -444,18 +466,32 @@ language sql stable security definer set search_path = public as $$
    where p.class_id = p_class_id and p.active order by p.created_at desc limit 1
 $$;
 
+-- Is a class part of a challenge? Either chosen directly, or its whole year group was chosen.
+create or replace function public.bw__in_challenge(ch bw_challenges, k bw_classes) returns boolean
+language sql immutable as $$
+  select k.id = any(ch.class_ids)
+      or lower(k.year_group) in (select lower(y) from unnest(ch.year_groups) y)
+$$;
+
 create or replace function public.bw__challenge(ch bw_challenges) returns jsonb
 language sql stable security definer set search_path = public as $$
+  with per as (
+    select k.id, k.name,
+           coalesce((select case ch.metric when 'workouts' then count(*)
+                                           when 'reps' then sum(x.total_reps)
+                                           else sum(x.duration_sec) / 60 end
+                       from bw_sessions x
+                      where x.class_id = k.id
+                        and x.created_at >= ch.starts_on and x.created_at < ch.ends_on + 1), 0) as n
+      from bw_classes k where bw__in_challenge(ch, k)
+  )
   select jsonb_build_object(
     'id', ch.id, 'title', ch.title, 'metric', ch.metric, 'target', ch.target,
-    'starts_on', ch.starts_on, 'ends_on', ch.ends_on, 'class_ids', to_jsonb(ch.class_ids),
-    'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = any(ch.class_ids)), '[]'::jsonb),
-    'progress', coalesce((select case ch.metric when 'workouts' then count(*)
-                                                when 'reps' then sum(x.total_reps)
-                                                else sum(x.duration_sec) / 60 end
-                            from bw_sessions x
-                           where x.class_id = any(ch.class_ids)
-                             and x.created_at >= ch.starts_on and x.created_at < ch.ends_on + 1), 0))
+    'starts_on', ch.starts_on, 'ends_on', ch.ends_on,
+    'class_ids', to_jsonb(ch.class_ids), 'year_groups', to_jsonb(ch.year_groups),
+    'classes', coalesce((select jsonb_agg(per.name order by per.name) from per), '[]'::jsonb),
+    'by_class', coalesce((select jsonb_agg(jsonb_build_object('id', per.id, 'name', per.name, 'progress', per.n) order by per.name) from per), '[]'::jsonb),
+    'progress', coalesce((select sum(per.n) from per), 0))
 $$;
 
 create or replace function public.bw_student_extras(p_token text)
@@ -471,7 +507,7 @@ begin
                          from bw_tests t where t.student_id = sid), '[]'::jsonb),
     'challenges', coalesce((select jsonb_agg(bw__challenge(ch) order by ch.ends_on)
                               from bw_challenges ch
-                             where c.id = any(ch.class_ids) and ch.starts_on <= current_date
+                             where bw__in_challenge(ch, c) and ch.starts_on <= current_date
                                and ch.ends_on >= current_date - 14), '[]'::jsonb));
 end $$;
 
@@ -572,21 +608,23 @@ end $$;
 
 create or replace function public.bw_t_add_challenge(p_token text, p_c jsonb) returns void
 language plpgsql security definer set search_path = public, extensions as $$
-declare ids uuid[];
+declare ids uuid[]; yrs text[];
 begin
   perform bw__teacher(p_token);
-  select array_agg(k.id) into ids from bw_classes k
-   where k.id::text in (select jsonb_array_elements_text(p_c -> 'class_ids'));
+  select coalesce(array_agg(k.id), '{}') into ids from bw_classes k
+   where k.id::text in (select jsonb_array_elements_text(coalesce(p_c -> 'class_ids', '[]'::jsonb)));
+  select coalesce(array_agg(distinct bw__year(y)), '{}') into yrs
+    from jsonb_array_elements_text(coalesce(p_c -> 'year_groups', '[]'::jsonb)) y where bw__year(y) is not null;
   if length(trim(coalesce(p_c ->> 'title', ''))) = 0 then raise exception 'Give the challenge a title.'; end if;
-  if ids is null then raise exception 'Choose at least one class.'; end if;
+  if cardinality(ids) = 0 and cardinality(yrs) = 0 then raise exception 'Choose at least one year group or class.'; end if;
   if coalesce(p_c ->> 'metric', '') not in ('workouts', 'reps', 'minutes') then raise exception 'Choose what to count.'; end if;
   if coalesce((p_c ->> 'target')::int, 0) < 1 then raise exception 'Set a target above 0.'; end if;
   if (p_c ->> 'starts_on') is null or (p_c ->> 'ends_on') is null
      or (p_c ->> 'ends_on')::date < (p_c ->> 'starts_on')::date then
     raise exception 'The end date must be on or after the start date.';
   end if;
-  insert into bw_challenges (title, metric, target, class_ids, starts_on, ends_on)
-  values (left(trim(p_c ->> 'title'), 100), p_c ->> 'metric', (p_c ->> 'target')::int, ids,
+  insert into bw_challenges (title, metric, target, class_ids, year_groups, starts_on, ends_on)
+  values (left(trim(p_c ->> 'title'), 100), p_c ->> 'metric', (p_c ->> 'target')::int, ids, yrs,
           (p_c ->> 'starts_on')::date, (p_c ->> 'ends_on')::date);
 end $$;
 

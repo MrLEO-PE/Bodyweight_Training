@@ -178,6 +178,14 @@ dialog.how::backdrop{background:rgba(0,0,0,.55)}
 .dfam legend{font-weight:700;padding:0 4px}
 fieldset.plain{border:0;padding:0;margin:0 0 10px}
 fieldset.plain legend{font-weight:600;margin-bottom:6px;padding:0}
+.byclass{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.byclass span{font-size:.85rem;border:1px solid var(--line);border-radius:999px;padding:.1em .65em}
+.byclass span.mine{border:2px solid var(--ink);font-weight:600}
+.yeargrp{border-top:1px solid var(--line);padding:8px 0 2px}
+.yeargrp .check{margin:0 0 6px}
+.forms{display:flex;flex-wrap:wrap;gap:2px 18px;padding-left:26px}
+.forms .check{margin:0 0 6px}
+.yearhead{font-family:var(--display);font-weight:700;font-size:1.2rem;margin:18px 0 8px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -369,6 +377,17 @@ const ymd = d => { const x=new Date(d); return `${x.getFullYear()}-${String(x.ge
 const addDays = n => { const d=new Date(); d.setDate(d.getDate()+n); return d; };
 const fmtDay = s => fmtDate(s+'T00:00');
 const num = n => Number(n||0).toLocaleString('en-GB');
+// Year groups: a class or form such as 10C belongs to Year 10
+const guessYear = name => { const m = String(name||'').trim().match(/^(?:year|yr|y)?\s*(\d{1,2})\s*[a-z]{0,3}$/i); return m ? `Year ${+m[1]}` : ''; };
+const normYear = v => { const s = String(v ?? '').replace(/\s+/g, ' ').trim(); const m = s.match(/^(?:year|yr|y)?\s*(\d{1,2})$/i); return m ? `Year ${+m[1]}` : s; };
+const NO_YEAR = 'Other classes';
+function byYear(classes){
+  const m = new Map();
+  classes.forEach(c=>{ const y = c.year_group || NO_YEAR; if(!m.has(y)) m.set(y, []); m.get(y).push(c); });
+  return [...m.entries()].map(([y, cs])=>[y, [...cs].sort(byName)])
+    .sort((a,b)=> a[0]===NO_YEAR ? 1 : b[0]===NO_YEAR ? -1 : a[0].localeCompare(b[0], undefined, {numeric:true}));
+}
+const yearOptions = classes => [...new Set(classes.map(c=>c.year_group).filter(Boolean))].sort((a,b)=>a.localeCompare(b, undefined, {numeric:true})).map(y=>`<option value="${esc(y)}">`).join('');
 const avgLvl = s => s.exercises?.length ? +(sum(s.exercises.map(e=>e.level))/s.exercises.length).toFixed(1) : 0;
 const unitWord = u => u==='sec' ? 's' : ' reps';
 const totals = ex => ({
@@ -412,8 +431,8 @@ function makeCloud(){
     teacherLogin: pin => rpc('bw_teacher_login', {p_pin:pin}),
     tChangePin: (tok, o, n) => rpc('bw_t_change_pin', {p_token:tok, p_old:o, p_new:n}),
     tClasses: tok => rpc('bw_t_classes', {p_token:tok}),
-    tAddClass: (tok, name, code, goal) => rpc('bw_t_add_class', {p_token:tok, p_name:name, p_code:code, p_goal:goal}),
-    tUpdateClass: (tok, id, code, goal) => rpc('bw_t_update_class', {p_token:tok, p_id:id, p_code:code, p_goal:goal}),
+    tAddClass: (tok, name, code, goal, year) => rpc('bw_t_add_class', {p_token:tok, p_name:name, p_code:code, p_goal:goal, p_year:year||''}),
+    tUpdateClass: (tok, id, name, code, goal, year) => rpc('bw_t_update_class', {p_token:tok, p_id:id, p_name:name, p_code:code, p_goal:goal, p_year:year||''}),
     tDeleteClass: (tok, id) => rpc('bw_t_delete_class', {p_token:tok, p_id:id}),
     tStudents: (tok, cid) => rpc('bw_t_students', {p_token:tok, p_class_id:cid}),
     tAddStudents: (tok, cid, names) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names}),
@@ -439,7 +458,7 @@ const Local = {
   _me(d, s){ const c=d.classes.find(x=>x.id===s.class_id); return {student:{id:s.id,name:s.name}, cls:{id:c.id,name:c.name,weekly_goal:c.weekly_goal||3}}; },
   _stu(tok){ const d=this._load(), s=d.students.find(x=>'local-s:'+x.id===tok); if(!s) throw new Error('Your session has expired. Please log in again.'); return [d,s]; },
   _t(tok){ if(tok!=='local-t') throw new Error('Your teacher session has expired. Please log in again.'); return this._load(); },
-  async listClasses(){ return this._load().classes.map(({id,name})=>({id,name})).sort(byName); },
+  async listClasses(){ return this._load().classes.map(({id,name,year_group})=>({id,name,year_group:year_group||null})).sort(byName); },
   async listStudents(cid, code){
     const d=this._load(), c=d.classes.find(x=>x.id===cid);
     if(!c || norm(c.code)!==norm(code)) throw new Error('That class code is not right. Check with your teacher.');
@@ -466,8 +485,8 @@ const Local = {
   async teacherLogin(pin){ if(pin!==this._load().teacher_pin) throw new Error('Wrong teacher PIN.'); return {token:'local-t'}; },
   async tChangePin(tok, o, n){ const d=this._t(tok); if(o!==d.teacher_pin) throw new Error('Your current PIN is not right.'); if(n.length<6) throw new Error('The new PIN must be at least 6 characters.'); d.teacher_pin=n; this._save(d); },
   async tClasses(tok){ const d=this._t(tok); return d.classes.map(c=>({...c, weekly_goal:c.weekly_goal||3, students:d.students.filter(s=>s.class_id===c.id).length, workouts:d.sessions.filter(s=>s.class_id===c.id).length})).sort(byName); },
-  async tAddClass(tok, name, code, goal){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
-  async tUpdateClass(tok, id, code, goal){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.code=code; c.weekly_goal=goal; } this._save(d); },
+  async tAddClass(tok, name, code, goal, year){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,year_group:normYear(year)||null,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
+  async tUpdateClass(tok, id, name, code, goal, year){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(!name) throw new Error('The class needs a name.'); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.name=name; c.code=code; c.weekly_goal=goal; c.year_group=normYear(year)||null; } this._save(d); },
   async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); d.plans=(d.plans||[]).filter(p=>p.class_id!==id); d.tests=(d.tests||[]).filter(t=>t.class_id!==id); this._save(d); },
   async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin})).sort(byName); },
   async tAddStudents(tok, cid, names){
@@ -479,17 +498,19 @@ const Local = {
   async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
   _plan(d, cid){ const p=(d.plans||[]).filter(x=>x.class_id===cid && x.active).sort(newestFirst)[0]; return p ? {...p} : null; },
+  _inCh: (ch, c) => ch.class_ids.includes(c.id) || (!!c.year_group && (ch.year_groups||[]).some(y=>norm(y)===norm(c.year_group))),
   _chl(d, ch){
-    const ss = d.sessions.filter(s=>ch.class_ids.includes(s.class_id) && ymd(s.created_at)>=ch.starts_on && ymd(s.created_at)<=ch.ends_on);
-    const progress = ch.metric==='workouts' ? ss.length : ch.metric==='reps' ? sum(ss.map(s=>s.total_reps)) : Math.floor(sum(ss.map(s=>s.duration_sec))/60);
-    return {...ch, progress, classes:d.classes.filter(c=>ch.class_ids.includes(c.id)).map(c=>c.name).sort()};
+    const count = ss => ch.metric==='workouts' ? ss.length : ch.metric==='reps' ? sum(ss.map(s=>s.total_reps)) : Math.floor(sum(ss.map(s=>s.duration_sec))/60);
+    const by_class = d.classes.filter(c=>this._inCh(ch, c)).sort(byName).map(c=>({id:c.id, name:c.name,
+      progress:count(d.sessions.filter(s=>s.class_id===c.id && ymd(s.created_at)>=ch.starts_on && ymd(s.created_at)<=ch.ends_on))}));
+    return {...ch, year_groups:ch.year_groups||[], by_class, classes:by_class.map(b=>b.name), progress:sum(by_class.map(b=>b.progress))};
   },
   _testsAsc: a => [...a].sort((x,y)=>x.created_at.localeCompare(y.created_at)),
   async studentExtras(tok){
     const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id), today=ymd(new Date()), cutoff=ymd(addDays(-14));
     return { plan:this._plan(d,c.id), test_label:c.test_label||null,
       tests:this._testsAsc((d.tests||[]).filter(t=>t.student_id===s.id)),
-      challenges:(d.challenges||[]).filter(ch=>ch.class_ids.includes(c.id) && ch.starts_on<=today && ch.ends_on>=cutoff).map(ch=>this._chl(d,ch)).sort((a,b)=>a.ends_on.localeCompare(b.ends_on)) };
+      challenges:(d.challenges||[]).filter(ch=>this._inCh(ch, c) && ch.starts_on<=today && ch.ends_on>=cutoff).map(ch=>this._chl(d,ch)).sort((a,b)=>a.ends_on.localeCompare(b.ends_on)) };
   },
   async addTest(tok, r){
     const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id);
@@ -513,7 +534,7 @@ const Local = {
   async tAddChallenge(tok, ch){
     const d=this._t(tok);
     if(!ch.title) throw new Error('Give the challenge a title.');
-    if(!ch.class_ids.length) throw new Error('Choose at least one class.');
+    if(!ch.class_ids.length && !(ch.year_groups||[]).length) throw new Error('Choose at least one year group or class.');
     if(!(ch.target>0)) throw new Error('Set a target above 0.');
     if(!ch.starts_on || !ch.ends_on || ch.ends_on<ch.starts_on) throw new Error('The end date must be on or after the start date.');
     (d.challenges ||= []).push({...ch, id:uid(), created_at:new Date().toISOString()}); this._save(d);
@@ -721,8 +742,11 @@ async function showStudentClass(){
   let classes=[];
   try{ classes = await Store.listClasses(); }catch(e){ return toast('Could not load classes: '+e.message); }
   const last = ls.get('bwb-last', {});
+  const groups = byYear(classes), opt = c => `<option value="${c.id}" ${last.class_id===c.id?'selected':''}>${esc(c.name)}</option>`;
   $('#cls').innerHTML = classes.length
-    ? `<option value="">Choose your class</option>` + classes.map(c=>`<option value="${c.id}" ${last.class_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')
+    ? `<option value="">Choose your class</option>` + (groups.length===1 && groups[0][0]===NO_YEAR
+        ? groups[0][1].map(opt).join('')
+        : groups.map(([y, cs])=>`<optgroup label="${esc(y)}">${cs.map(opt).join('')}</optgroup>`).join(''))
     : `<option value="">No classes yet. Ask your teacher.</option>`;
   const go = async () => {
     const c = classes.find(x=>x.id===$('#cls').value), code = $('#code').value.trim();
@@ -1087,10 +1111,14 @@ function challengeHTML(ch, teacher=false){
   const today = ymd(new Date()), done = ch.progress >= ch.target, pct = Math.min(100, Math.round(ch.progress/ch.target*100));
   const days = Math.round((new Date(ch.ends_on+'T00:00') - new Date(today+'T00:00'))/864e5) + 1;
   const when = done ? 'Challenge complete!' : ch.starts_on > today ? `Starts ${fmtDay(ch.starts_on)}` : ch.ends_on < today ? 'Ended' : days===1 ? 'Last day' : `${days} days left`;
+  const by = ch.by_class || [], picked = by.filter(b=>(ch.class_ids||[]).includes(b.id)).map(b=>b.name);
+  const scope = [...(ch.year_groups||[]), ...picked];   // e.g. "Year 10" or "Year 10, 9C"
+  const mine = !teacher && S.cls ? S.cls.id : null;
   return `<div class="panel">
     <div class="between"><b>${esc(ch.title)}</b><span class="small">${done ? `<b>${when}</b>` : `<span class="muted">${when}</span>`}</span></div>
     <div class="bar${done?' done':''}" role="progressbar" aria-label="${esc(ch.title)}" aria-valuemin="0" aria-valuemax="${ch.target}" aria-valuenow="${ch.progress}"><i style="width:${pct}%"></i></div>
-    <div class="between small"><span><b>${num(ch.progress)}</b> of ${num(ch.target)} ${METRIC[ch.metric]}</span><span class="muted">${ch.classes.map(esc).join(', ')}${teacher ? `. ${fmtDay(ch.starts_on)} to ${fmtDay(ch.ends_on)}` : ''}</span></div>
+    <div class="between small"><span><b>${num(ch.progress)}</b> of ${num(ch.target)} ${METRIC[ch.metric]}</span><span class="muted">${esc((scope.length ? scope : ch.classes).join(', '))}${teacher ? `. ${fmtDay(ch.starts_on)} to ${fmtDay(ch.ends_on)}` : ''}</span></div>
+    ${by.length > 1 ? `<div class="byclass" aria-label="Each class's part">${by.map(b=>`<span class="${b.id===mine?'mine':''}">${esc(b.name)}${b.id===mine?' (your class)':''} <b>${num(b.progress)}</b></span>`).join('')}</div>` : ''}
     ${teacher ? `<p style="margin:10px 0 0"><button class="btn ghost small" data-delch="${ch.id}">Delete</button></p>` : ''}</div>`;
 }
 
@@ -1202,10 +1230,12 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
-    <div class="panel"><div class="h3">Add a class</div>
-      <div class="row3"><label class="field"><span>Class name</span><input id="cn" placeholder="e.g. 9C"></label>
-      <label class="field"><span>Class code</span><input id="cc" placeholder="Students type this to join"></label>
+    <div class="panel"><div class="h3">Add a class or form</div>
+      <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
+      <label class="field"><span>Year group</span><input id="cy" list="yearList" placeholder="e.g. Year 10" autocomplete="off"></label></div>
+      <div class="row2"><label class="field"><span>Class code</span><input id="cc" placeholder="Students type this to join"></label>
       <label class="field"><span>Weekly goal</span>${goalSelect('cg')}</label></div>
+      <datalist id="yearList"></datalist>
       <div class="btns"><button class="btn" id="add">Add class</button><button class="btn ghost" id="imp">Import students from a file</button></div>
       <p class="muted small" style="margin:6px 0 0">Import reads Excel, LibreOffice and CSV files, and Google Sheets downloaded as .xlsx. It can create the classes for you.</p></div>
     <div class="between"><h2>Your classes</h2><button class="btn ghost small" id="all">Download all classes (.xlsx)</button></div>
@@ -1220,10 +1250,13 @@ async function showTeacherHome(){
       <label class="field"><span>New PIN, at least 6 characters</span><input id="np" type="password" autocomplete="new-password"></label></div>
       <button class="btn small" id="chp">Change PIN</button>
       <p class="muted small">This PIN is shared by every teacher in the department.</p></details>`);
+  // Typing 10C fills in Year 10, unless the teacher has typed a year group themselves
+  $('#cn').oninput = () => { if(!$('#cy').dataset.typed) $('#cy').value = guessYear($('#cn').value); };
+  $('#cy').oninput = () => { $('#cy').dataset.typed = $('#cy').value ? '1' : ''; };
   $('#add').onclick = async () => {
     const name=$('#cn').value.trim(), code=$('#cc').value.trim();
     if(!name || code.length<3) return toast('Enter a class name and a class code of at least 3 characters.');
-    try{ await Store.tAddClass(S.teacher, name, code, +$('#cg').value); toast(`${name} added`); showTeacherHome(); }catch(e){ fail('Could not add the class', e); }
+    try{ await Store.tAddClass(S.teacher, name, code, +$('#cg').value, normYear($('#cy').value)); toast(`${name} added`); showTeacherHome(); }catch(e){ fail('Could not add the class', e); }
   };
   $('#all').onclick = downloadAll;
   $('#imp').onclick = () => showImport();
@@ -1235,9 +1268,14 @@ async function showTeacherHome(){
   let classes;
   try{ classes = await Store.tClasses(S.teacher); }
   catch(e){ if(isExpired(e)) return logout(e.message); $('#list').textContent = 'Could not load classes: '+e.message; $('#chl').textContent = ''; return; }
-  $('#list').innerHTML = !classes.length ? '<p>No classes yet. Add your first class above.</p>' : `<div class="clist">${classes.map(c=>`<div class="panel ccard">
-    <div><b>${esc(c.name)}</b><div class="muted">${c.students} students, ${c.workouts} workouts. Code: ${esc(c.code)}. Goal: ${c.weekly_goal} per week</div></div>
-    <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`).join('')}</div>`;
+  S.tclasses = classes;
+  $('#yearList').innerHTML = yearOptions(classes);
+  const groups = byYear(classes), plain = groups.length===1 && groups[0][0]===NO_YEAR;
+  const card = c => `<div class="panel ccard">
+    <div><b>${esc(c.name)}</b><div class="muted">${c.students} student${+c.students===1?'':'s'}, ${c.workouts} workout${+c.workouts===1?'':'s'}. Code: ${esc(c.code)}. Goal: ${c.weekly_goal} per week</div></div>
+    <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`;
+  $('#list').innerHTML = !classes.length ? '<p>No classes yet. Add your first class above.</p>'
+    : groups.map(([y, cs])=>`${plain ? '' : `<div class="yearhead">${esc(y)}</div>`}<div class="clist">${cs.map(card).join('')}</div>`).join('');
   $$('[data-open]').forEach(b=>b.onclick=()=>showClass(classes.find(c=>c.id===b.dataset.open)));
   $$('[data-dl]').forEach(b=>b.onclick=()=>downloadClass(classes.find(c=>c.id===b.dataset.dl)));
   loadChallenges(classes);
@@ -1251,23 +1289,32 @@ async function loadChallenges(classes){
   box.className = '';
   box.innerHTML = (list.length ? `<div class="clist">${list.map(ch=>challengeHTML(ch, true)).join('')}</div>` : '') + `
     <details class="panel" style="margin-top:12px" ${list.length?'':'open'}><summary>New challenge</summary>
-      <label class="field"><span>Title</span><input id="chT" maxlength="100" placeholder="e.g. Year 9: 1,000 workouts this half-term"></label>
+      <label class="field"><span>Title</span><input id="chT" maxlength="100" placeholder="e.g. Year 10: 1,000 workouts this half-term"></label>
       <div class="row2"><label class="field"><span>Count</span><select id="chM"><option value="workouts">Workouts</option><option value="reps">Reps</option><option value="minutes">Minutes of training</option></select></label>
         <label class="field"><span>Target</span><input id="chN" type="number" min="1" inputmode="numeric" placeholder="e.g. 300"></label></div>
       <div class="row2"><label class="field"><span>Starts</span><input id="chS" type="date" value="${ymd(new Date())}"></label>
         <label class="field"><span>Ends</span><input id="chE" type="date" value="${ymd(addDays(42))}"></label></div>
-      <fieldset class="plain"><legend>Classes taking part</legend>${classes.map(c=>`<label class="check"><input type="checkbox" name="chC" value="${c.id}"> ${esc(c.name)}</label>`).join('')}</fieldset>
+      <fieldset class="plain"><legend>Who takes part</legend>
+        ${byYear(classes).map(([y, cs])=>`<div class="yeargrp">
+          ${y===NO_YEAR ? `<div class="small muted" style="margin-bottom:6px">${NO_YEAR}</div>`
+            : `<label class="check"><input type="checkbox" name="chY" value="${esc(y)}"> <span><b>All of ${esc(y)}</b> <span class="muted small">${cs.length} class${cs.length===1?'':'es'} now, and any added later</span></span></label>`}
+          <div class="forms">${cs.map(c=>`<label class="check"><input type="checkbox" name="chC" value="${c.id}" data-year="${esc(y)}"> ${esc(c.name)}</label>`).join('')}</div></div>`).join('')}
+      </fieldset>
       <button class="btn small" id="chAdd">Create challenge</button></details>`;
+  // Ticking a whole year group ticks and locks its classes
+  $$('[name="chY"]').forEach(y=>y.onchange=()=>$$('[name="chC"]').filter(c=>c.dataset.year===y.value).forEach(c=>{ c.checked=y.checked; c.disabled=y.checked; }));
   $$('[data-delch]').forEach(b=>b.onclick=async()=>{
     if(!confirm('Delete this challenge? Workouts are not affected.')) return;
     try{ await Store.tDeleteChallenge(S.teacher, b.dataset.delch); loadChallenges(classes); }catch(e){ fail('Could not delete', e); }
   });
   $('#chAdd').onclick = async () => {
     const ch = {title:$('#chT').value.trim(), metric:$('#chM').value, target:parseInt($('#chN').value,10)||0,
-      starts_on:$('#chS').value, ends_on:$('#chE').value, class_ids:$$('[name="chC"]:checked').map(x=>x.value)};
+      starts_on:$('#chS').value, ends_on:$('#chE').value,
+      year_groups:$$('[name="chY"]:checked').map(x=>x.value),
+      class_ids:$$('[name="chC"]:checked').filter(x=>!x.disabled).map(x=>x.value)};
     if(!ch.title) return toast('Give the challenge a title.');
     if(ch.target<1) return toast('Set a target above 0.');
-    if(!ch.class_ids.length) return toast('Choose at least one class.');
+    if(!ch.class_ids.length && !ch.year_groups.length) return toast('Choose a year group or at least one class.');
     if(!ch.starts_on || !ch.ends_on || ch.ends_on<ch.starts_on) return toast('The end date must be on or after the start date.');
     try{ await Store.tAddChallenge(S.teacher, ch); toast('Challenge created'); loadChallenges(classes); }catch(e){ fail('Could not create the challenge', e); }
   };
@@ -1289,7 +1336,7 @@ function renderDemos(){
 async function showClass(c){
   S.planFor = null;
   setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
-    <h1>${esc(c.name)}</h1>
+    <h1>${esc(c.name)}</h1>${c.year_group ? `<p class="muted" style="margin-top:-.3em">${esc(c.year_group)}</p>` : ''}
     <p><button class="btn" id="dl">Download ${esc(c.name)} (.xlsx)</button></p>
     <h2>Workout of the week</h2><div id="plan" class="muted">Loading…</div>
     <h2>Fitness check</h2><div id="fitp" class="muted">Loading…</div>
@@ -1299,15 +1346,19 @@ async function showClass(c){
     <div id="studs" class="tbl-wrap muted" style="margin-top:12px">Loading…</div>
     <h2>Workouts</h2><div id="sess" class="tbl-wrap muted">Loading…</div>
     <details class="panel" style="margin-top:32px"><summary>Class settings</summary>
+      <div class="row2"><label class="field"><span>Class or form</span><input id="ename" maxlength="60" value="${esc(c.name)}"></label>
+      <label class="field"><span>Year group</span><input id="eyear" list="yearList2" maxlength="40" value="${esc(c.year_group||'')}" placeholder="e.g. Year 10" autocomplete="off"></label></div>
       <div class="row2"><label class="field"><span>Class code</span><input id="ecode" value="${esc(c.code)}"></label>
       <label class="field"><span>Weekly goal</span>${goalSelect('egoal', c.weekly_goal)}</label></div>
+      <datalist id="yearList2">${yearOptions(S.tclasses||[])}</datalist>
       <button class="btn small" id="save">Save settings</button></details>
     <p style="margin-top:24px"><button class="btn danger small" id="del">Delete class and all its data</button></p>`);
   $('#back').onclick = showTeacherHome;
   $('#dl').onclick = () => downloadClass(c);
   $('#save').onclick = async () => {
-    const code=$('#ecode').value.trim(), goal=+$('#egoal').value;
-    try{ await Store.tUpdateClass(S.teacher, c.id, code, goal); c.code=code; c.weekly_goal=goal; toast('Settings saved'); load(); }catch(e){ fail('Could not save', e); }
+    const name=$('#ename').value.trim(), code=$('#ecode').value.trim(), goal=+$('#egoal').value, year=normYear($('#eyear').value);
+    if(!name) return toast('The class needs a name.');
+    try{ await Store.tUpdateClass(S.teacher, c.id, name, code, goal, year); Object.assign(c, {name, code, weekly_goal:goal, year_group:year||null}); toast('Settings saved'); showClass(c); }catch(e){ fail('Could not save', e); }
   };
   $('#del').onclick = async () => { if(confirm(`Delete ${c.name}, its students and all their workouts? This cannot be undone.`)){ try{ await Store.tDeleteClass(S.teacher, c.id); toast(`${c.name} deleted`); showTeacherHome(); }catch(e){ fail('Could not delete', e); } } };
   $('#impc').onclick = () => showImport(c.id);
@@ -1386,7 +1437,8 @@ const HEAD_RX = {  // column headings we recognise, in English and French (accen
   first: /^(first ?names?|given ?names?|forenames?|prenoms?|first)$/,
   last: /^(last ?names?|surnames?|family ?names?|noms? de famille|noms?|last)$/,
   full: /^(full ?names?|names?|students?|student ?names?|pupils?|pupil ?names?|learners?|learner ?names?|eleves?|nom complet|noms? (et )?prenoms?|prenoms? (et )?noms?)$/,
-  cls: /^(class|classes|class ?name|form|form ?group|tutor ?group|groups?|groupes?|classes?|sections?|homeroom|division|year ?group)$/
+  year: /^(year|years|year ?group|year ?level|yr|yr ?group|grade|grade ?level|niveau)$/,
+  cls: /^(class|classes|class ?name|form|forms|form ?group|form ?class|tutor ?group|tutor|reg ?group|registration ?group|groups?|groupes?|classes?|sections?|homeroom|division)$/
 };
 const genCode = () => { const A = 'abcdefghjkmnpqrstuvwxyz23456789', r = crypto.getRandomValues(new Uint32Array(6)); return Array.from(r, x=>A[x % A.length]).join(''); };
 let IM = null;
@@ -1414,7 +1466,7 @@ async function showImport(classId){
   let classes;
   try{ classes = await Store.tClasses(S.teacher); }catch(e){ return fail('Could not load classes', e); }
   const back = classes.find(c=>c.id===classId) || null;
-  IM = {classes:classes.map(c=>({id:c.id, name:c.name})), back, preset:back?.id || null, include:{}, dest:{}, codes:{}, goal:3, newName:''};
+  IM = {classes:classes.map(c=>({id:c.id, name:c.name, year_group:c.year_group})), back, preset:back?.id || null, include:{}, dest:{}, codes:{}, years:{}, goal:3, newName:''};
   setView(`<p><button class="btn ghost small" id="back">${back ? `Back to ${esc(back.name)}` : 'All classes'}</button></p>
     <h1>Import students</h1>
     <p>Choose an Excel (.xlsx or .xls), LibreOffice (.ods) or CSV file.${back ? ` Students go into ${esc(back.name)} unless you choose otherwise.` : ''}</p>
@@ -1426,7 +1478,7 @@ async function showImport(classId){
     const f = $('#imf').files[0]; if(!f) return;
     try{ IM.wb = await readSheetFile(f); }
     catch(e){ return toast('Could not read this file. Save it as .xlsx or .csv and try again.'); }
-    IM.file = f.name; IM.include = {}; IM.dest = {};
+    IM.file = f.name; IM.include = {}; IM.dest = {}; IM.years = {};
     IM.sheets = IM.wb.SheetNames.filter(sn=>sheetRows(sn).length);
     if(!IM.sheets.length){ $('#imMap').innerHTML = $('#imPrev').innerHTML = ''; return toast('This file looks empty.'); }
     IM.newName = f.name.replace(/\.[^.]+$/, '');
@@ -1436,7 +1488,7 @@ async function showImport(classId){
 function imDetect(initial){
   const base = !initial && IM.sheets.includes(IM.sheet) ? IM.sheet : IM.sheets[0];
   const rows = sheetRows(base), h = detectHeader(rows), at = k => h.kinds.indexOf(k);
-  const fi = at('first'), la = at('last'), fu = at('full'), cl = at('cls');
+  const fi = at('first'), la = at('last'), fu = at('full'), yr = at('year'), cl = at('cls');
   if(initial) IM.sheet = IM.sheets.length>1 && cl<0 ? '*' : base;   // several sheets and no class column: one sheet per class
   IM.hasHeader = h.row >= 0;
   const head = h.row>=0 ? rows[h.row] : [], sample = rows[h.row+1] || [];
@@ -1447,7 +1499,8 @@ function imDetect(initial){
     mode: fi>=0 && la>=0 ? 'firstlast' : 'full',
     full: fu>=0 ? fu : la>=0 ? la : fi>=0 ? fi : 0,
     first: Math.max(fi, 0), last: Math.max(la, 0), order:'fl',
-    cls: cl>=0 ? 'col:'+cl : IM.preset ? 'into:'+IM.preset : IM.sheet==='*' ? 'sheet' : 'new'
+    cls: cl>=0 ? 'col:'+cl : IM.preset ? 'into:'+IM.preset : IM.sheet==='*' ? 'sheet' : 'new',
+    year: yr>=0 ? 'col:'+yr : 'guess'   // year group of new classes: a Year column, or worked out from names like 10C
   };
 }
 function imRender(){
@@ -1470,6 +1523,10 @@ function imRender(){
       ${IM.classes.map(c=>`<option value="into:${c.id}" ${m.cls==='into:'+c.id?'selected':''}>Everyone into ${esc(c.name)}</option>`).join('')}
       <option value="new" ${m.cls==='new'?'selected':''}>Everyone into a new class</option></select></label>
     ${m.cls==='new' ? `<label class="field"><span>New class name</span><input id="imN" maxlength="60" value="${esc(IM.newName)}"></label>` : ''}
+    ${m.cls.startsWith('into:') ? '' : `<label class="field"><span>Year group of new classes</span><select id="imY">
+      <option value="guess" ${m.year==='guess'?'selected':''}>Work it out from the class name (10C is Year 10)</option>
+      ${IM.cols.map((c,i)=>`<option value="col:${i}" ${m.year==='col:'+i?'selected':''}>From ${esc(c)}</option>`).join('')}
+      <option value="" ${m.year===''?'selected':''}>Leave empty</option></select></label>`}
     <label class="field" style="max-width:340px;margin:0"><span>Weekly goal for new classes</span>${goalSelect('imG', IM.goal)}</label></div>`;
   const on = (id, ev, fn) => { const el = $('#'+id); if(el) el[ev] = fn; };
   on('imS', 'onchange', e => { IM.sheet = e.target.value; imDetect(false); imRender(); });
@@ -1480,6 +1537,7 @@ function imRender(){
   on('imLa', 'onchange', e => { m.last = +e.target.value; imPreview(); });
   on('imO', 'onchange', e => { m.order = e.target.value; imPreview(); });
   on('imC', 'onchange', e => { m.cls = e.target.value; imRender(); });
+  on('imY', 'onchange', e => { m.year = e.target.value; IM.years = {}; imPreview(); });
   on('imN', 'oninput', e => { IM.newName = e.target.value; imPreview(); });
   on('imG', 'onchange', e => { IM.goal = +e.target.value; });
   imPreview();
@@ -1494,7 +1552,8 @@ function imRows(){
       const name = m.mode==='firstlast'
         ? (m.order==='lf' ? [cell(m.last), cell(m.first)] : [cell(m.first), cell(m.last)]).filter(Boolean).join(' ')
         : cell(m.full);
-      out.push({name, cls: m.cls.startsWith('col:') ? cell(+m.cls.slice(4)) : m.cls==='sheet' ? sn.trim() : ''});
+      out.push({name, cls: m.cls.startsWith('col:') ? cell(+m.cls.slice(4)) : m.cls==='sheet' ? sn.trim() : '',
+        year: m.year.startsWith('col:') ? cell(+m.year.slice(4)) : ''});
     }
   }
   return out;
@@ -1508,13 +1567,15 @@ function imGroups(){
     if(!fixed && m.cls!=='new' && !label){ noClass++; continue; }
     const key = fixed ? 'id:'+fixed.id : m.cls==='new' ? 'new' : 'n:'+norm(label);
     let g = groups.get(key);
-    if(!g){ g = {key, label, fixed, names:[], seen:new Set()}; groups.set(key, g); }
+    if(!g){ g = {key, label, fixed, names:[], seen:new Set(), year:''}; groups.set(key, g); }
+    if(!g.year && r.year) g.year = normYear(r.year);
     if(!g.seen.has(norm(r.name))){ g.seen.add(norm(r.name)); g.names.push(r.name); }
   }
   return {groups:[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})), noName, noClass};
 }
 const imDest = g => g.fixed ? g.fixed.id : IM.dest[g.key] ?? (IM.classes.find(c=>norm(c.name)===norm(g.label))?.id || 'new');
 const imIncluded = g => IM.include[g.key] ?? (!IM.onlyPreset || imDest(g)===IM.preset);
+const imYear = g => IM.years[g.key] ?? (IM.map.year==='' ? '' : g.year || guessYear(g.label));
 function imPreview(){
   const box = $('#imPrev'), {groups, noName, noClass} = imGroups();
   if(!groups.length){ box.innerHTML = `<p class="muted" style="margin-top:12px">No names found with these settings. Check the columns above.</p>`; return; }
@@ -1525,14 +1586,16 @@ function imPreview(){
     <div class="clist">${groups.map(g=>{ const d = imDest(g); if(d==='new') IM.codes[g.key] ||= genCode();
       return `<div class="panel">
         <label class="check" style="margin:0 0 8px"><input type="checkbox" data-inc="${esc(g.key)}" ${imIncluded(g)?'checked':''}> <span><b>${esc(g.label || 'New class')}</b> <span class="muted">${g.names.length} student${g.names.length===1?'':'s'}</span></span></label>
-        ${g.fixed ? '' : `<div class="row2">
-          <label class="field"><span class="small">Import into</span><select data-dest="${esc(g.key)}">
+        ${g.fixed ? '' : `<label class="field"><span class="small">Import into</span><select data-dest="${esc(g.key)}">
             <option value="new" ${d==='new'?'selected':''}>A new class${g.label ? ` called ${esc(g.label)}` : ''}</option>
             ${IM.classes.map(c=>`<option value="${c.id}" ${d===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>
-          ${d==='new' ? `<label class="field"><span class="small">Class code for students</span><input data-code="${esc(g.key)}" value="${esc(IM.codes[g.key])}" autocomplete="off"></label>` : '<span></span>'}</div>`}
+          ${d==='new' ? `<div class="row2"><label class="field"><span class="small">Class code for students</span><input data-code="${esc(g.key)}" value="${esc(IM.codes[g.key])}" autocomplete="off"></label>
+            <label class="field"><span class="small">Year group</span><input data-yr="${esc(g.key)}" list="yearListIm" maxlength="40" value="${esc(imYear(g))}" placeholder="e.g. Year 10" autocomplete="off"></label></div>` : ''}`}
         <details><summary class="small">See the names</summary><p class="small" style="max-width:none">${g.names.map(esc).join(', ')}</p></details></div>`; }).join('')}</div>
     <p style="margin-top:16px"><button class="btn" id="imGo" ${total?'':'disabled'}>Import ${total} student${total===1?'':'s'} into ${inc.length} class${inc.length===1?'':'es'}</button></p>
-    <p class="muted small">Names already in a class are skipped, so importing the same file twice is safe.</p>`;
+    <p class="muted small">Names already in a class are skipped, so importing the same file twice is safe.</p>
+    <datalist id="yearListIm">${yearOptions(IM.classes)}</datalist>`;
+  box.querySelectorAll('[data-yr]').forEach(x=>x.oninput=()=>{ IM.years[x.dataset.yr] = x.value; });
   box.querySelectorAll('[data-inc]').forEach(x=>x.onchange=()=>{ IM.include[x.dataset.inc] = x.checked; imPreview(); });
   box.querySelectorAll('[data-dest]').forEach(x=>x.onchange=()=>{ IM.dest[x.dataset.dest] = x.value; imPreview(); });
   box.querySelectorAll('[data-code]').forEach(x=>x.oninput=()=>{ IM.codes[x.dataset.code] = x.value; });
@@ -1551,8 +1614,9 @@ async function imImport(){
     for(const g of todo){
       let id = imDest(g);
       if(id==='new'){
-        id = await Store.tAddClass(S.teacher, g.label, IM.codes[g.key].trim(), IM.goal);
-        IM.classes.push({id, name:g.label}); IM.dest[g.key] = id; made++;   // a retry adds to this class instead of making another
+        const year = normYear(imYear(g));
+        id = await Store.tAddClass(S.teacher, g.label, IM.codes[g.key].trim(), IM.goal, year);
+        IM.classes.push({id, name:g.label, year_group:year||null}); IM.dest[g.key] = id; made++;   // a retry adds to this class instead of making another
       }
       added += await Store.tAddStudents(S.teacher, id, g.names); total += g.names.length;
     }

@@ -23,15 +23,17 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 
 ## What teachers get
 
-- Classes with a join code and a weekly goal (1 to 7 workouts)
+- Classes or forms (such as 10C) with a join code, a weekly goal (1 to 7 workouts) and a **year group** (such as Year 10). The year group fills itself in from names like 10C, Y10 or Year 10. Classes are listed by year group, for teachers and students.
 - **Import students from a file:** Excel (.xlsx, .xls), LibreOffice (.ods), CSV, or Google Sheets downloaded as .xlsx.
-  - It finds the name and class columns, in English or French headings, and handles one sheet per class.
+  - It finds the name, form/class and year columns, in English or French headings, and handles one sheet per class.
   - It can create new classes with a join code, and names already in a class are skipped.
   - The file is read on the teacher's device: only names and classes are saved.
 - Or paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
 - A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
 - **Workout of the week** per class: build it with the same builder, add a message, and see how many students have done it.
-- **Class challenges:** count workouts, reps or minutes across one or more classes between two dates, for example "Year 9: 1,000 workouts this half-term".
+- **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
+  - Choose whole year groups (forms added later join automatically), single forms, or both.
+  - The card shows each form's part of the total, and students see their own form highlighted.
 - **Fitness checks:** open a check for a class with a name such as "Start of Term 1" and close it when done. The class page shows each student's first and latest results and the change.
 - **Demo videos:** paste your own video link for any of the 80 exercises. Without one, students get a YouTube search.
 - Excel export per class (Students, Progress, Fitness checks, Workouts, Exercise log) or one file for all classes
