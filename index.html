@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15202B">
+<title>Bodyweight Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --paper:#EEF2F5; --card:#FFFFFF; --ink:#15202B; --muted:#5B6875; --line:#D3DAE1;
+  --l1:#4FB283; --l2:#2B8FC6; --l3:#EE9B2D; --l4:#DD4B26;
+  --on1:#0E2A1D; --on2:#FFFFFF; --on3:#2B1A04; --on4:#FFFFFF;
+  --display:'Barlow Condensed','Arial Narrow',Impact,sans-serif;
+  --body:'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--paper:#10161D;--card:#19222C;--ink:#E7EDF3;--muted:#97A5B3;--line:#2A3542}
+}
+:root[data-theme="dark"]{--paper:#10161D;--card:#19222C;--ink:#E7EDF3;--muted:#97A5B3;--line:#2A3542}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font:400 17px/1.45 var(--body);padding-bottom:env(safe-area-inset-bottom,0px)}
+.demo{background:var(--l3);color:var(--on3);text-align:center;font-size:.9rem;padding:6px 12px;padding-top:calc(6px + env(safe-area-inset-top,0px))}
+.offline{background:var(--ink);color:var(--paper);text-align:center;font-size:.9rem;padding:6px 12px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;max-width:760px;margin:0 auto;padding:14px 16px}
+.brand{font-family:var(--display);font-weight:800;font-size:1.55rem;display:flex;align-items:center;gap:10px;background:none;border:0;color:var(--ink);cursor:pointer;padding:0}
+.ladder{display:inline-flex;align-items:flex-end;gap:3px;height:22px}
+.ladder i{width:6px;border-radius:2px}
+#who{display:flex;align-items:center;gap:10px;font-weight:600}
+.wrap{max-width:760px;margin:0 auto;padding:4px 16px 140px}
+h1{font-family:var(--display);font-weight:800;font-size:2.5rem;line-height:1;margin:.3em 0 .35em}
+h2{font-family:var(--display);font-weight:700;font-size:1.55rem;margin:1.5em 0 .4em}
+.h3{font-family:var(--display);font-weight:700;font-size:1.25rem;margin:0 0 10px}
+p{max-width:62ch}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.btn{font:600 1rem var(--body);border:2px solid var(--ink);background:var(--ink);color:var(--paper);padding:.7em 1.2em;border-radius:999px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.small{padding:.4em .9em;font-size:.9rem}
+.btn.danger{background:transparent;border-color:var(--l4);color:var(--l4)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.link{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;font-weight:600}
+:focus-visible{outline:3px solid var(--l2);outline-offset:2px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.field{display:block;margin:0 0 14px}
+.field>span{display:block;font-weight:600;margin-bottom:6px}
+.check{display:flex;align-items:center;gap:8px;margin:0 0 14px;font-weight:500}
+.check input{width:auto}
+input,select,textarea{font:500 1rem var(--body);width:100%;padding:.65em .8em;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.between{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+@media (max-width:520px){.row2,.row3{grid-template-columns:1fr}}
+details.panel summary{cursor:pointer;font-weight:700}
+details.panel[open] summary{margin-bottom:12px}
+
+/* home */
+.stairs{display:grid;grid-template-columns:repeat(4,1fr);align-items:end;gap:6px;margin:22px 0 28px}
+.stairs div{background:var(--lc);color:var(--lon);border-radius:10px 10px 4px 4px;padding:10px;font-weight:600;font-size:.92rem;line-height:1.2;display:flex;flex-direction:column;justify-content:flex-end}
+.stairs div:nth-child(1){height:78px}.stairs div:nth-child(2){height:112px}.stairs div:nth-child(3){height:146px}.stairs div:nth-child(4){height:180px}
+.stairs .st{font-family:var(--display);font-weight:800;font-size:1.3rem}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:520px){.choice{grid-template-columns:1fr}}
+.role{text-align:left;padding:20px;border-radius:var(--r);border:2px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font:inherit}
+.role:hover{border-color:var(--ink)}
+.role b{display:block;font-family:var(--display);font-size:1.6rem}
+
+/* progress */
+.goal .big{font-family:var(--display);font-weight:800;font-size:2.4rem;line-height:1}
+.goalbar{display:flex;gap:5px;margin-top:12px}
+.goalbar i{flex:1;height:12px;border-radius:6px;background:var(--line)}
+.goalbar i.on{background:var(--l1)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+@media (max-width:520px){.tiles{grid-template-columns:1fr 1fr}.tile:last-child{grid-column:span 2}}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.tile b{display:block;font-family:var(--display);font-weight:800;font-size:2rem;line-height:1.05}
+.tile span{color:var(--muted);font-size:.9rem}
+.chart{position:relative;max-width:560px}
+.chart svg{display:block;width:100%;height:auto;touch-action:pan-y}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.chart .ax{fill:var(--muted);font:500 13px var(--body)}
+.chart .ln{fill:none;stroke:var(--l2);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.chart .pt{fill:var(--l2);stroke:var(--card);stroke-width:2}
+.chart .hl{fill:var(--l2);stroke:var(--ink);stroke-width:2}
+.tip{position:absolute;transform:translate(-50%,calc(-100% - 12px));background:var(--ink);color:var(--paper);padding:.35em .6em;border-radius:8px;font-size:.85rem;white-space:nowrap;pointer-events:none}
+.status{font-weight:600;font-size:.9rem}
+.status.ready{display:inline-flex;align-items:center;gap:6px}
+.tag{display:inline-block;font-style:normal;font-weight:700;font-size:.72rem;padding:.05em .45em;border-radius:5px;background:var(--ink);color:var(--paper);margin-left:4px;vertical-align:1px}
+.pending{font-size:.8rem;color:var(--muted)}
+
+/* builder */
+.setrow{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center}
+.setrow label{font-weight:600;margin-right:8px}
+.seg{display:inline-flex;border:2px solid var(--line);border-radius:999px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);font:600 .95rem var(--body);padding:.45em .85em;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.fam{padding:14px 0;border-top:1px solid var(--line)}
+.fam-name{font-weight:700;font-size:1.05rem}
+.lv{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+@media (max-width:600px){.lv{grid-template-columns:1fr 1fr}}
+.chip{position:relative;text-align:left;border:2px solid var(--line);border-left:8px solid var(--lc);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 10px;font:500 .93rem/1.2 var(--body);cursor:pointer;min-height:60px}
+.chip small{display:block;font-weight:700;font-size:.78rem;color:var(--muted);margin-bottom:3px}
+.chip[aria-pressed="true"]{background:var(--lc);color:var(--lon);border-color:var(--lc)}
+.chip[aria-pressed="true"] small{color:inherit;opacity:.85}
+.chip[aria-pressed="true"] .tag{background:var(--lon);color:var(--lc)}
+.ord{position:absolute;top:-9px;right:-9px;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--paper);font:700 .8rem var(--body);display:grid;place-items:center}
+.cue{font-size:.92rem;color:var(--muted);margin:8px 0 0}
+.dock{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));z-index:20}
+.dock-in{max-width:760px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.cover{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.cover span{font-size:.8rem;padding:.15em .6em;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.cover span.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+
+/* player */
+.player{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:var(--lc);color:var(--lon);padding:calc(14px + env(safe-area-inset-top,0px)) 20px calc(16px + env(safe-area-inset-bottom,0px));overflow:auto}
+.player.rest{background:var(--card);color:var(--ink);border-top:12px solid var(--lc)}
+.p-bar{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden}
+.p-bar i{display:block;height:100%;background:currentColor}
+.p-top{display:flex;justify-content:space-between;font-weight:600;margin-top:10px}
+.p-main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;width:100%;max-width:560px;margin:0 auto;padding:12px 0}
+.p-phase{font-family:var(--display);font-weight:700;font-size:1.5rem}
+.p-time{font-family:var(--display);font-weight:800;font-size:min(40vw,10.5rem);line-height:.92;font-variant-numeric:tabular-nums}
+.p-name{font-family:var(--display);font-weight:800;font-size:2.3rem;line-height:1.02}
+.p-sub{font-weight:600;margin-top:4px}
+.p-cue{max-width:38ch;opacity:.92}
+.p-log p{margin:14px auto 8px}
+.stepper{display:flex;align-items:center;justify-content:center;gap:12px}
+.stepper button{width:56px;height:56px;border-radius:50%;border:2px solid var(--ink);background:transparent;color:var(--ink);font:700 1.7rem var(--body);cursor:pointer}
+.stepper input{width:110px;text-align:center;font:800 2.4rem var(--display);padding:.1em}
+.p-next{margin-top:26px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.p-next b{font-family:var(--display);font-size:2rem;line-height:1}
+.p-ctrl{display:flex;justify-content:center;gap:10px}
+.pbtn{flex:1;max-width:150px;border:2px solid currentColor;background:transparent;color:inherit;font:600 1rem var(--body);padding:.7em;border-radius:999px;cursor:pointer}
+
+/* tables */
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+th{font-weight:700}
+.lvtag{display:inline-block;padding:.1em .55em;border-radius:6px;font-weight:700;font-size:.82rem;background:var(--lc);color:var(--lon)}
+input.num{width:80px;padding:.4em .5em}
+.rpe{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;max-width:560px}
+.rpe button{padding:.6em 0;border:2px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:700 1rem var(--body);cursor:pointer}
+.rpe button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.clist{display:grid;gap:10px}
+.ccard{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.ccard b{font-family:var(--display);font-size:1.6rem}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+#toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:.7em 1.1em;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99;max-width:90vw;text-align:center}
+#toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="demo" class="demo" hidden>Demo mode: data is saved on this device only. Teacher PIN for the demo: 2468.</div>
+<div id="offline" class="offline" hidden>You are offline. Workouts are saved on this device and upload when you reconnect.</div>
+<header class="top">
+  <button class="brand" id="brand" aria-label="Bodyweight Builder home">
+    <span class="ladder" aria-hidden="true"><i style="height:7px;background:var(--l1)"></i><i style="height:12px;background:var(--l2)"></i><i style="height:17px;background:var(--l3)"></i><i style="height:22px;background:var(--l4)"></i></span>
+    Bodyweight Builder
+  </button>
+  <div id="who"></div>
+</header>
+<main class="wrap" id="view"></main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ===== Settings =====
+   The anon key is public by design. All data access goes through the bw_* functions
+   in supabase/setup.sql, which check class codes, PINs and login tokens server-side.
+   Leave both values empty to run in demo mode (data stays on this device). */
+const CONFIG = {
+  SUPABASE_URL: 'https://tufoatmpespwqeeklkhi.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1Zm9hdG1wZXNwd3FlZWtsa2hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0MDIzNjQsImV4cCI6MjEwNjk3ODM2NH0.P6-CyS_1cqKISdhkoiH9_jvIfnFfWO7ekU2v93DJQBU'
+};
+const MIN_EX = 8, MAX_EX = 12;
+
+/* ===== Exercise library: [name, unit ('reps' or 'sec'), cue] for levels 1 to 4 ===== */
+const REGIONS = ['Legs','Upper body','Core','Cardio','Balance'];
+const F = (id, name, region, levels) => ({ id, name, region, levels: levels.map(([n,u,c],i)=>({ n, u, c, lvl:i+1 })) });
+const FAMILIES = [
+  F('squat','Squat','Legs',[
+    ['Squat','reps','Feet shoulder width apart, sit back until thighs are parallel, chest up.'],
+    ['Jump squat','reps','Squat down, jump straight up, land softly back into the squat.'],
+    ['Squat half turn jump','reps','Squat, jump and turn 180 degrees in the air, land facing the other way.'],
+    ['Squat tuck jump','reps','Squat, jump and pull both knees to your chest, land softly.']]),
+  F('lunge','Lunge','Legs',[
+    ['Split squat','reps','One foot forward, one back. Lower the back knee towards the floor and stand up. Switch legs at halfway.'],
+    ['Reverse lunge','reps','Step back with alternate legs, back knee close to the floor, push back up.'],
+    ['Reverse lunge knee drive','reps','Reverse lunge, then drive the back knee up to hip height. Alternate legs.'],
+    ['Jumping lunge','reps','Jump and switch legs in the air, land softly in a lunge.']]),
+  F('lateral','Side lunge','Legs',[
+    ['Side step squat','reps','Step to the side into a squat, step back, alternate sides.'],
+    ['Side lunge','reps','Big step to the side, bend that knee, keep the other leg straight. Alternate sides.'],
+    ['Skater step','reps','Step diagonally behind you and swing the arms like a speed skater. Alternate sides.'],
+    ['Skater jump','reps','Jump from side to side, land on one leg with the other foot behind.']]),
+  F('bridge','Glute bridge','Legs',[
+    ['Glute bridge','reps','Lie on your back, knees bent, squeeze your glutes to lift the hips.'],
+    ['Bridge march','reps','Hold the bridge and lift one foot at a time, hips stay level.'],
+    ['Single-leg bridge','reps','One foot on the floor, other leg straight up, lift the hips. Switch at halfway.'],
+    ['Single-leg bridge 3s squeeze','reps','Single-leg bridge with a 3-second squeeze at the top. Switch at halfway.']]),
+  F('calf','Calf raise','Legs',[
+    ['Calf raise','reps','Rise onto your toes, pause, lower slowly.'],
+    ['Single-leg calf raise','reps','Same on one leg, hand on a wall for balance. Switch at halfway.'],
+    ['Pogo hops','reps','Small fast bounces on the balls of your feet with stiff ankles.'],
+    ['Single-leg pogo hops','reps','Pogo hops on one leg. Switch at halfway.']]),
+  F('wallsit','Wall sit','Legs',[
+    ['High wall sit','sec','Back flat on the wall, knees bent about halfway, hold.'],
+    ['Wall sit','sec','Thighs parallel to the floor, knees above ankles, hold.'],
+    ['Wall sit arms overhead','sec','Parallel wall sit with arms straight above your head.'],
+    ['Single-leg wall sit','sec','Parallel wall sit with one foot lifted. Switch at halfway.']]),
+
+  F('pushup','Push-up','Upper body',[
+    ['Wall push-up','reps','Hands on the wall at chest height, body straight, bend and push.'],
+    ['Knee push-up','reps','On your knees, body straight from knees to head, chest to the floor.'],
+    ['Push-up','reps','On your toes, body straight, chest close to the floor, push up.'],
+    ['Push-up shoulder taps','reps','One push-up, then tap each shoulder. Count each push-up.']]),
+  F('dip','Floor dip','Upper body',[
+    ['Tabletop hold','sec','Hands and feet on the floor, belly up, hips level with knees, hold.'],
+    ['Floor dip','reps','Sit with hands behind you, lift the hips, bend and straighten the elbows.'],
+    ['Crab toe touch','reps','In crab position, touch each hand to the opposite foot.'],
+    ['Single-leg floor dip','reps','Floor dip with one leg straight in the air. Switch at halfway.']]),
+  F('pike','Pike','Upper body',[
+    ['Downward dog hold','sec','Hands and feet on the floor, hips high, push the floor away, hold.'],
+    ['Downward dog shoulder taps','reps','In downward dog, tap each hand to the opposite shoulder.'],
+    ['Pike push-up','reps','Hips high, bend the elbows to bring your head towards the floor.'],
+    ['Slow pike push-up','reps','Pike push-up taking 3 seconds to lower.']]),
+  F('bear','Bear crawl','Upper body',[
+    ['Bear hold','sec','On hands and toes, knees hovering just above the floor, hold.'],
+    ['Bear hold shoulder taps','reps','In the bear hold, tap each hand to the opposite shoulder.'],
+    ['Bear crawl','reps','Crawl 4 steps forward and 4 back with knees low. Count each length.'],
+    ['Bear crawl push-up','reps','Crawl 2 steps forward, do a push-up, crawl back. Count each push-up.']]),
+
+  F('plank','Plank','Core',[
+    ['Knee plank','sec','On forearms and knees, body straight, hold.'],
+    ['Forearm plank','sec','On forearms and toes, body straight, hold.'],
+    ['Plank leg lift','reps','Forearm plank, lift one leg at a time, hips stay still.'],
+    ['Plank up-down','reps','Move from forearms to hands and back down, one arm at a time.']]),
+  F('sideplank','Side plank','Core',[
+    ['Knee side plank','sec','On one forearm and knees, hips lifted. Switch sides at halfway.'],
+    ['Side plank','sec','On one forearm and feet, body straight. Switch sides at halfway.'],
+    ['Side plank hip dips','reps','Lower the hip to tap the floor and lift. Switch sides at halfway.'],
+    ['Star side plank','sec','Side plank with the top arm and leg lifted. Switch sides at halfway.']]),
+  F('crunch','Crunch','Core',[
+    ['Crunch','reps','Knees bent, lift your shoulders off the floor, lower slowly.'],
+    ['Bicycle crunch','reps','Elbow towards the opposite knee, alternate sides.'],
+    ['Tuck-up','reps','Balance on your bottom, pull knees and chest together, then extend.'],
+    ['V-up','reps','Lift straight legs and arms to meet above your hips.']]),
+  F('hollow','Hollow body','Core',[
+    ['Dead bug','reps','On your back, lower the opposite arm and leg, lower back stays on the floor.'],
+    ['Tucked hollow hold','sec','Shoulders up, knees tucked, lower back pressed into the floor, hold.'],
+    ['Hollow hold','sec','Arms and legs straight and low, lower back on the floor, hold.'],
+    ['Hollow rocks','reps','In the hollow hold, rock forward and back without losing the shape.']]),
+  F('back','Back extension','Core',[
+    ['Bird dog','reps','On hands and knees, reach the opposite arm and leg out, alternate.'],
+    ['Superman hold','sec','Lying on your front, lift arms, chest and legs, hold.'],
+    ['Superman lifts','reps','Lift and lower arms, chest and legs together.'],
+    ['Swimmers','reps','Lying on your front, flutter opposite arms and legs off the floor.']]),
+
+  F('climber','Mountain climber','Cardio',[
+    ['Step-in climber','reps','From a high plank, step one foot in at a time.'],
+    ['Mountain climbers','reps','From a high plank, drive the knees in fast, alternating.'],
+    ['Cross-body climbers','reps','Drive each knee towards the opposite elbow.'],
+    ['Plank jacks','reps','In a high plank, jump the feet out and in.']]),
+  F('jacks','Jumping jack','Cardio',[
+    ['Step jacks','reps','Step one foot out while raising the arms, alternate sides.'],
+    ['Jumping jacks','reps','Jump the feet out with arms overhead, jump back in.'],
+    ['Cross jacks','reps','Jump out, then jump in crossing the feet. Alternate the front foot.'],
+    ['Star jumps','reps','Explode up into a star shape, land softly in a squat.']]),
+  F('knees','High knees','Cardio',[
+    ['Marching knees','reps','March on the spot, knees to hip height. Count each knee.'],
+    ['High knee jog','reps','Jog on the spot with knees up. Count each knee.'],
+    ['Fast high knees','reps','Sprint on the spot, knees to hip height. Count each knee.'],
+    ['Power skips on the spot','reps','Drive one knee up and jump off the other foot, swing the arms.']]),
+  F('burpee','Burpee','Cardio',[
+    ['Step-back burpee','reps','Hands down, step back to a plank, step in, stand up.'],
+    ['Squat thrust','reps','Hands down, jump back to a plank, jump the feet in, stand up.'],
+    ['Burpee','reps','Squat thrust, then jump with hands overhead.'],
+    ['Burpee tuck jump','reps','Burpee finishing with a tuck jump.']]),
+
+  F('balance','Single-leg balance','Balance',[
+    ['Single-leg stand','sec','Stand on one leg, arms out. Switch at halfway.'],
+    ['Single-leg stand eyes closed','sec','Same with eyes closed. Switch at halfway.'],
+    ['Single-leg reach','reps','On one leg, hinge forward and reach to the floor, stand tall. Switch at halfway.'],
+    ['Hop and stick','reps','Hop forward on one leg and freeze the landing for 2 seconds. Alternate legs.']])
+];
+const FAM = Object.fromEntries(FAMILIES.map(f=>[f.id,f]));
+const famIdOf = e => e.fid || FAMILIES.find(f=>f.name===e.family)?.id;
+
+/* ===== Helpers ===== */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2));
+const lc = l => `--lc:var(--l${l});--lon:var(--on${l})`;
+const byName = (a,b) => a.name.localeCompare(b.name, undefined, {numeric:true});
+const newestFirst = (a,b) => b.created_at.localeCompare(a.created_at);
+const norm = s => String(s ?? '').trim().toLowerCase();
+const sum = a => a.reduce((x,y)=>x+(+y||0),0);
+const fmtDate = iso => new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+const fmtShort = iso => new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+const fmtTime = iso => new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+const avgLvl = s => s.exercises?.length ? +(sum(s.exercises.map(e=>e.level))/s.exercises.length).toFixed(1) : 0;
+const unitWord = u => u==='sec' ? 's' : ' reps';
+const totals = ex => ({
+  total_reps: sum(ex.filter(e=>e.unit==='reps').flatMap(e=>e.results)),
+  total_hold_sec: sum(ex.filter(e=>e.unit==='sec').flatMap(e=>e.results))
+});
+let toastT;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),3800); }
+const ls = {
+  get(k, d){ try{ const v=localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+const tabStore = {
+  get(k){ try{ return JSON.parse(sessionStorage.getItem(k)); }catch(e){ return null; } },
+  set(k, v){ try{ sessionStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  del(k){ try{ sessionStorage.removeItem(k); }catch(e){} }
+};
+const isNetErr = e => !navigator.onLine || /fetch|network|load failed|timed? ?out/i.test(e?.message||'');
+const isExpired = e => /expired/i.test(e?.message||'');
+
+/* ===== Data store: Supabase functions, or this device in demo mode ===== */
+function makeCloud(){
+  const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {auth:{persistSession:false}});
+  const rpc = async (fn, args={}) => {
+    const {data,error} = await sb.rpc(fn, args);
+    if(error) throw new Error(error.message);
+    if(data && !Array.isArray(data) && data.error) throw new Error(data.error);
+    return data;
+  };
+  return {
+    listClasses: () => rpc('bw_list_classes'),
+    listStudents: (class_id, code) => rpc('bw_list_students', {p_class_id:class_id, p_code:code}),
+    studentLogin: (id, code, pin) => rpc('bw_student_login', {p_student_id:id, p_code:code, p_pin:pin}),
+    me: tok => rpc('bw_student_me', {p_token:tok}),
+    logout: tok => rpc('bw_logout', {p_token:tok}),
+    mySessions: tok => rpc('bw_my_sessions', {p_token:tok}),
+    addSession: (tok, s) => rpc('bw_add_session', {p_token:tok, p_s:s}),
+    teacherLogin: pin => rpc('bw_teacher_login', {p_pin:pin}),
+    tChangePin: (tok, o, n) => rpc('bw_t_change_pin', {p_token:tok, p_old:o, p_new:n}),
+    tClasses: tok => rpc('bw_t_classes', {p_token:tok}),
+    tAddClass: (tok, name, code, goal) => rpc('bw_t_add_class', {p_token:tok, p_name:name, p_code:code, p_goal:goal}),
+    tUpdateClass: (tok, id, code, goal) => rpc('bw_t_update_class', {p_token:tok, p_id:id, p_code:code, p_goal:goal}),
+    tDeleteClass: (tok, id) => rpc('bw_t_delete_class', {p_token:tok, p_id:id}),
+    tStudents: (tok, cid) => rpc('bw_t_students', {p_token:tok, p_class_id:cid}),
+    tAddStudents: (tok, cid, names) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names}),
+    tResetPin: (tok, id) => rpc('bw_t_reset_pin', {p_token:tok, p_student_id:id}),
+    tRemoveStudent: (tok, id) => rpc('bw_t_remove_student', {p_token:tok, p_student_id:id}),
+    tSessions: (tok, cid) => rpc('bw_t_sessions', {p_token:tok, p_class_id:cid})
+  };
+}
+const Local = {
+  _load(){ const d = ls.get('bwb-data', null) || {}; return {classes:[],students:[],sessions:[],teacher_pin:'2468',...d}; },
+  _save(d){ try{ localStorage.setItem('bwb-data', JSON.stringify(d)); }catch(e){ throw new Error('Could not save on this device.'); } },
+  _me(d, s){ const c=d.classes.find(x=>x.id===s.class_id); return {student:{id:s.id,name:s.name}, cls:{id:c.id,name:c.name,weekly_goal:c.weekly_goal||3}}; },
+  _stu(tok){ const d=this._load(), s=d.students.find(x=>'local-s:'+x.id===tok); if(!s) throw new Error('Your session has expired. Please log in again.'); return [d,s]; },
+  _t(tok){ if(tok!=='local-t') throw new Error('Your teacher session has expired. Please log in again.'); return this._load(); },
+  async listClasses(){ return this._load().classes.map(({id,name})=>({id,name})).sort(byName); },
+  async listStudents(cid, code){
+    const d=this._load(), c=d.classes.find(x=>x.id===cid);
+    if(!c || norm(c.code)!==norm(code)) throw new Error('That class code is not right. Check with your teacher.');
+    return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin})).sort(byName);
+  },
+  async studentLogin(id, code, pin){
+    const d=this._load(), s=d.students.find(x=>x.id===id);
+    if(!s) throw new Error('Name not found. Ask your teacher.');
+    if(norm(d.classes.find(x=>x.id===s.class_id)?.code)!==norm(code)) throw new Error('That class code is not right. Check with your teacher.');
+    if(!/^\d{4}$/.test(pin)) throw new Error('Your PIN must be 4 digits.');
+    if(s.pin && s.pin!==pin) throw new Error('Wrong PIN. Ask your teacher to reset it if you forgot.');
+    if(!s.pin){ s.pin=pin; this._save(d); }
+    return {token:'local-s:'+s.id, ...this._me(d,s)};
+  },
+  async me(tok){ const [d,s]=this._stu(tok); return this._me(d,s); },
+  async logout(){},
+  async mySessions(tok){ const [d,s]=this._stu(tok); return d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst); },
+  async addSession(tok, p){
+    const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id);
+    const {done_at, ...rest} = p;
+    const row = {...rest, ...totals(p.exercises), id:uid(), class_id:c.id, class_name:c.name, student_id:s.id, student_name:s.name, created_at:done_at||new Date().toISOString()};
+    d.sessions.push(row); this._save(d); return row;
+  },
+  async teacherLogin(pin){ if(pin!==this._load().teacher_pin) throw new Error('Wrong teacher PIN.'); return {token:'local-t'}; },
+  async tChangePin(tok, o, n){ const d=this._t(tok); if(o!==d.teacher_pin) throw new Error('Your current PIN is not right.'); if(n.length<6) throw new Error('The new PIN must be at least 6 characters.'); d.teacher_pin=n; this._save(d); },
+  async tClasses(tok){ const d=this._t(tok); return d.classes.map(c=>({...c, weekly_goal:c.weekly_goal||3, students:d.students.filter(s=>s.class_id===c.id).length, workouts:d.sessions.filter(s=>s.class_id===c.id).length})).sort(byName); },
+  async tAddClass(tok, name, code, goal){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
+  async tUpdateClass(tok, id, code, goal){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.code=code; c.weekly_goal=goal; } this._save(d); },
+  async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); this._save(d); },
+  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin})).sort(byName); },
+  async tAddStudents(tok, cid, names){
+    const d=this._t(tok), have=new Set(d.students.filter(s=>s.class_id===cid).map(s=>norm(s.name))); let n=0;
+    names.forEach(name=>{ if(!have.has(norm(name))){ d.students.push({id:uid(),class_id:cid,name,pin:null}); have.add(norm(name)); n++; } });
+    this._save(d); return n;
+  },
+  async tResetPin(tok, id){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.pin=null; this._save(d); },
+  async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
+  async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); }
+};
+const useCloud = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase);
+const Store = useCloud ? makeCloud() : Local;
+if(!useCloud) $('#demo').hidden = false;
+
+/* ===== Login persistence ===== */
+const auth = {
+  get(){ return tabStore.get('bwb-auth') || ls.get('bwb-auth', null); },
+  save(a, keep){ tabStore.del('bwb-auth'); ls.del('bwb-auth'); keep ? ls.set('bwb-auth', a) : tabStore.set('bwb-auth', a); },
+  update(a){ if(tabStore.get('bwb-auth')) tabStore.set('bwb-auth', a); else ls.set('bwb-auth', a); },
+  clear(){ tabStore.del('bwb-auth'); ls.del('bwb-auth'); }
+};
+
+/* ===== Offline queue: workouts that could not be uploaded yet ===== */
+const pending = {
+  all(){ return ls.get('bwb-pending', []); },
+  mine(){ return this.all().filter(p=>p.student_id===S.student?.id); },
+  add(sess){ const a=this.all(); a.push({id:uid(), student_id:S.student.id, sess}); ls.set('bwb-pending', a); },
+  remove(id){ ls.set('bwb-pending', this.all().filter(p=>p.id!==id)); }
+};
+async function flushPending(){
+  if(!S.student || !navigator.onLine) return 0;
+  let n=0;
+  for(const p of pending.mine()){
+    try{ await Store.addSession(S.token, p.sess); pending.remove(p.id); n++; }
+    catch(e){ if(isNetErr(e) || isExpired(e)) break; }
+  }
+  return n;
+}
+function netBanner(){ $('#offline').hidden = navigator.onLine; }
+addEventListener('online', async () => { netBanner(); const n = await flushPending(); if(n){ toast(`${n} saved workout${n===1?'':'s'} uploaded`); if($('#hist')) showStudentHome(); } });
+addEventListener('offline', netBanner);
+
+/* ===== State ===== */
+const S = { student:null, cls:null, token:null, teacher:null, sel:[], settings:{work:40,rest:20,rounds:2}, hist:[], A:null };
+const view = $('#view');
+function setView(html){ view.onclick = null; view.innerHTML = html; window.scrollTo(0,0); }
+function header(){
+  const w=$('#who');
+  if(S.student) w.innerHTML = `<span>${esc(S.student.name)} <span class="muted">${esc(S.cls.name)}</span></span><button class="btn ghost small" id="logout">Log out</button>`;
+  else if(S.teacher) w.innerHTML = `<span>Teacher</span><button class="btn ghost small" id="logout">Log out</button>`;
+  else w.innerHTML = '';
+  const b=$('#logout'); if(b) b.onclick=()=>logout();
+}
+function logout(msg){
+  const tok = S.token || S.teacher;
+  if(tok) Store.logout(tok).catch(()=>{});
+  if(S.student) auth.clear(); else tabStore.del('bwb-teacher');
+  S.student=S.cls=S.token=S.teacher=null; S.sel=[]; S.hist=[]; S.A=null;
+  showHome(); if(msg) toast(msg);
+}
+function fail(prefix, e){ if(isExpired(e)) return logout(e.message); toast(`${prefix}: ${e.message}`); }
+$('#brand').onclick = () => { if(S.student) showStudentHome(); else if(S.teacher) showTeacherHome(); else showHome(); };
+
+/* ===== Progress analysis ===== */
+// Level-up rule, per movement, at the highest level reached:
+//   holds: held the full work time in every round in the last two workouts at that level
+//   reps:  done at that level at least twice, the last one matched or beat the best reps-per-minute
+//          at that level, and the workout felt manageable (effort 7 or less)
+function analyse(sessions){
+  const asc = [...sessions].sort((a,b)=>a.created_at.localeCompare(b.created_at));
+  const fams = {}, pb = {};
+  asc.forEach(s=>s.exercises.forEach(e=>{
+    const fid = famIdOf(e); if(!fid) return;
+    const f = fams[fid] ||= {fid, level:0, hist:{}};
+    const res = e.results.map(Number);
+    const entry = { at:s.created_at, rpe:s.rpe, unit:e.unit, best:Math.max(...res),
+      rate: e.unit==='reps' ? sum(res)/(res.length*s.work_sec)*60 : 0,
+      full: e.unit==='sec' && res.every(v=>v>=s.work_sec) };
+    f.level = Math.max(f.level, e.level);
+    (f.hist[e.level] ||= []).push(entry);
+    pb[e.name] = Math.max(pb[e.name] ?? 0, entry.best);
+  }));
+  Object.values(fams).forEach(f=>{
+    const L = f.hist[f.level], last = L[L.length-1], prev = L.slice(0,-1);
+    f.unit = last.unit; f.best = Math.max(...L.map(x=>x.best)); f.times = L.length; f.last = last.at;
+    const ready = L.length>=2 && (last.unit==='sec'
+      ? last.full && L[L.length-2].full
+      : last.rate >= Math.max(...prev.map(x=>x.rate)) && last.rpe<=7);
+    f.status = f.level>=4 ? (ready ? 'mastered' : 'top') : ready ? 'ready' : 'working';
+  });
+  return {fams, pb};
+}
+const weekStart = d => { const x=new Date(d); x.setHours(0,0,0,0); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x.getTime(); };
+function weekStats(sessions, goal){
+  const counts = new Map();
+  sessions.forEach(s=>{ const k=weekStart(s.created_at); counts.set(k,(counts.get(k)||0)+1); });
+  const now = weekStart(Date.now()), thisWeek = counts.get(now)||0;
+  const d = new Date(now); if(thisWeek < goal) d.setDate(d.getDate()-7);
+  let streak = 0;
+  while((counts.get(weekStart(d))||0) >= goal){ streak++; d.setDate(d.getDate()-7); }
+  return {thisWeek, streak};
+}
+const readyCount = A => Object.values(A.fams).filter(f=>f.status==='ready').length;
+function statusHTML(f){
+  if(f.status==='ready') return `<span class="status ready">Ready for <span class="lvtag" style="${lc(f.level+1)}">Level ${f.level+1}</span></span>`;
+  if(f.status==='mastered') return `<span class="status">Top level mastered</span>`;
+  if(f.status==='top') return `<span class="status">Top level, keep improving</span>`;
+  return `<span class="status muted">Keep going</span>`;
+}
+
+/* ===== Progress view (shared by student and teacher) ===== */
+const CH = {W:420, H:190, L:34, R:12, T:14, B:28};
+const chX = (i,n) => CH.L + (n<2 ? 0 : i*(CH.W-CH.L-CH.R)/(n-1));
+const chY = v => CH.T + (4-v)*(CH.H-CH.T-CH.B)/3;
+function levelChart(sessions){
+  const pts = [...sessions].sort((a,b)=>a.created_at.localeCompare(b.created_at)).slice(-20).map(s=>({v:avgLvl(s), d:s.created_at}));
+  if(pts.length < 2) return `<p class="muted">The level chart appears after your second workout.</p>`;
+  const n = pts.length, path = pts.map((p,i)=>`${i?'L':'M'}${chX(i,n).toFixed(1)},${chY(p.v).toFixed(1)}`).join('');
+  return `<div class="chart" data-pts='${esc(JSON.stringify(pts))}'>
+    <svg viewBox="0 0 ${CH.W} ${CH.H}" role="img" aria-label="Average level per workout, last ${n} workouts: from ${pts[0].v} to ${pts[n-1].v}">
+      ${[1,2,3,4].map(l=>`<line class="grid" x1="${CH.L}" x2="${CH.W-CH.R}" y1="${chY(l)}" y2="${chY(l)}"/><text class="ax" x="${CH.L-8}" y="${chY(l)+4}" text-anchor="end">L${l}</text>`).join('')}
+      <text class="ax" x="${CH.L}" y="${CH.H-6}">${fmtShort(pts[0].d)}</text>
+      <text class="ax" x="${CH.W-CH.R}" y="${CH.H-6}" text-anchor="end">${fmtShort(pts[n-1].d)}</text>
+      <path class="ln" d="${path}"/>
+      ${pts.map((p,i)=>`<circle class="pt" cx="${chX(i,n).toFixed(1)}" cy="${chY(p.v).toFixed(1)}" r="4.5"/>`).join('')}
+      <circle class="hl" r="6.5" visibility="hidden"/>
+    </svg><div class="tip" hidden></div></div>`;
+}
+function wireCharts(){
+  $$('.chart').forEach(ch=>{
+    const pts = JSON.parse(ch.dataset.pts), n = pts.length, svg = ch.querySelector('svg'), tip = ch.querySelector('.tip'), hl = ch.querySelector('.hl');
+    svg.onpointermove = ev => {
+      const r = svg.getBoundingClientRect(), vx = (ev.clientX-r.left)/r.width*CH.W;
+      const i = Math.max(0, Math.min(n-1, Math.round((vx-CH.L)/((CH.W-CH.L-CH.R)/(n-1)))));
+      const x = chX(i,n), y = chY(pts[i].v);
+      hl.setAttribute('cx',x); hl.setAttribute('cy',y); hl.setAttribute('visibility','visible');
+      tip.textContent = `${fmtShort(pts[i].d)}: average level ${pts[i].v}`;
+      tip.style.left = (x/CH.W*100)+'%'; tip.style.top = (y/CH.H*100)+'%'; tip.hidden = false;
+    };
+    svg.onpointerleave = () => { tip.hidden = true; hl.setAttribute('visibility','hidden'); };
+  });
+}
+function progressHTML(sessions, goal, A, you=true){
+  const {thisWeek, streak} = weekStats(sessions, goal);
+  const fams = FAMILIES.map(f=>A.fams[f.id]).filter(Boolean);
+  const asc = [...sessions].sort((a,b)=>a.created_at.localeCompare(b.created_at));
+  const first = asc[0], last = asc[asc.length-1];
+  return `
+    <div class="panel goal">
+      <div class="between"><div><div class="h3" style="margin:0">This week</div>
+        <span class="big">${thisWeek} of ${goal}</span> workouts</div>
+        <div style="text-align:right"><div class="h3" style="margin:0">Streak</div><span class="big">${streak}</span> week${streak===1?'':'s'}</div></div>
+      <div class="goalbar" aria-hidden="true">${Array.from({length:Math.max(goal,thisWeek)},(_,i)=>`<i class="${i<thisWeek?'on':''}"></i>`).join('')}</div>
+      <p class="muted small" style="margin:10px 0 0">${thisWeek>=goal ? (you?'Weekly goal reached. Every extra workout counts too.':'Weekly goal reached.') : `${goal-thisWeek} more to reach the weekly goal${you?' set by your teacher':''}. A streak counts weeks in a row with the goal reached.`}</p>
+    </div>
+    ${sessions.length ? `
+    <div class="tiles">
+      <div class="tile"><b>${sessions.length}</b><span>workouts</span></div>
+      <div class="tile"><b>${sum(sessions.map(s=>s.total_reps))}</b><span>reps in total</span></div>
+      <div class="tile"><b>${avgLvl(first)} → ${avgLvl(last)}</b><span>average level, first to latest</span></div>
+    </div>
+    <h2>Level over time</h2>
+    ${levelChart(sessions)}
+    <h2>${you?'My levels':'Levels'}</h2>
+    <p class="muted small">Ready for the next level means: holds were kept for the full time in the last two workouts at that level, or reps matched or beat the best at that level with an effort of 7 or less.</p>
+    <div class="tbl-wrap panel"><table>
+      <thead><tr><th>Movement</th><th>Level</th><th>Best round</th><th>Done</th><th>Next step</th></tr></thead>
+      <tbody>${fams.map(f=>`<tr><td>${esc(FAM[f.fid].name)}</td><td><span class="lvtag" style="${lc(f.level)}">Level ${f.level}</span></td>
+        <td>${f.best}${unitWord(f.unit)}</td><td>${f.times}×</td><td>${statusHTML(f)}</td></tr>`).join('')}</tbody></table></div>
+    <h2>${you?'My workouts':'Workouts'}</h2>
+    <div class="tbl-wrap panel"><table>
+      <thead><tr><th>Date</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th></tr></thead>
+      <tbody>${sessions.map(s=>`<tr><td>${fmtDate(s.created_at)}${s.pending?' <span class="pending">waiting to upload</span>':''}</td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td></tr>`).join('')}</tbody></table></div>`
+    : `<p>${you?'No workouts yet. Build your first one.':'No workouts yet.'}</p>`}`;
+}
+
+/* ===== Home ===== */
+function showHome(){
+  header();
+  setView(`
+    <h1>Train at home, level by level</h1>
+    <p class="muted">Every movement has four levels. Pick 8 to 12 exercises at the level that challenges you, follow the timer, log your score and watch your levels climb.</p>
+    <div class="stairs" aria-label="Example: the four squat levels">
+      ${FAM.squat.levels.map(l=>`<div style="${lc(l.lvl)}"><span class="st">Level ${l.lvl}</span>${esc(l.n)}</div>`).join('')}
+    </div>
+    <div class="choice">
+      <button class="role" id="goS"><b>I'm a student</b><span class="muted">Build a workout and track my progress</span></button>
+      <button class="role" id="goT"><b>I'm a teacher</b><span class="muted">Manage classes, follow progress, download results</span></button>
+    </div>`);
+  $('#goS').onclick = showStudentClass;
+  $('#goT').onclick = showTeacherLogin;
+}
+
+/* ===== Student login ===== */
+async function showStudentClass(){
+  setView(`<h1>Join your class</h1>
+    <div class="panel">
+      <label class="field"><span>Class</span><select id="cls"><option>Loading…</option></select></label>
+      <label class="field"><span>Class code</span><input id="code" autocomplete="off" placeholder="Given by your teacher"></label>
+      <button class="btn" id="next">Continue</button> <button class="btn ghost" id="back">Back</button>
+    </div>`);
+  $('#back').onclick = showHome;
+  let classes=[];
+  try{ classes = await Store.listClasses(); }catch(e){ return toast('Could not load classes: '+e.message); }
+  const last = ls.get('bwb-last', {});
+  $('#cls').innerHTML = classes.length
+    ? `<option value="">Choose your class</option>` + classes.map(c=>`<option value="${c.id}" ${last.class_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')
+    : `<option value="">No classes yet. Ask your teacher.</option>`;
+  const go = async () => {
+    const c = classes.find(x=>x.id===$('#cls').value), code = $('#code').value.trim();
+    if(!c) return toast('Choose your class.');
+    if(!code) return toast('Type your class code.');
+    $('#next').disabled = true;
+    try{ const list = await Store.listStudents(c.id, code); showStudentName(c, code, list); }
+    catch(e){ $('#next').disabled = false; toast(e.message); }
+  };
+  $('#next').onclick = go;
+  $('#code').onkeydown = e => { if(e.key==='Enter') go(); };
+}
+function showStudentName(c, code, list){
+  setView(`<h1>${esc(c.name)}</h1>
+    <div class="panel">
+      <label class="field"><span>Your name</span><select id="stu"></select></label>
+      <div id="pinBox"></div>
+      <label class="check"><input type="checkbox" id="keep" checked> Keep me logged in on this device</label>
+      <button class="btn" id="login">Log in</button> <button class="btn ghost" id="back">Back</button>
+    </div>`);
+  $('#back').onclick = showStudentClass;
+  const last = ls.get('bwb-last', {});
+  $('#stu').innerHTML = list.length
+    ? `<option value="">Choose your name</option>` + list.map(s=>`<option value="${s.id}" ${last.student_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')
+    : `<option value="">No names yet. Ask your teacher.</option>`;
+  const pinUI = () => {
+    const s = list.find(x=>x.id===$('#stu').value);
+    $('#pinBox').innerHTML = !s ? '' : s.has_pin
+      ? `<label class="field"><span>Your 4-digit PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>`
+      : `<p class="muted">First time here. Create a 4-digit PIN you will remember.</p>
+         <label class="field"><span>New PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>
+         <label class="field"><span>Type it again</span><input id="pin2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>`;
+    const p = $('#pin2') || $('#pin'); if(p) p.onkeydown = e => { if(e.key==='Enter') login(); };
+  };
+  $('#stu').onchange = pinUI; pinUI();
+  const login = async () => {
+    const s = list.find(x=>x.id===$('#stu').value);
+    if(!s) return toast('Choose your name.');
+    const pin = ($('#pin')?.value||'').trim();
+    if(!/^\d{4}$/.test(pin)) return toast('Your PIN must be 4 digits.');
+    if(!s.has_pin && pin !== ($('#pin2')?.value||'').trim()) return toast('The two PINs do not match.');
+    $('#login').disabled = true;
+    try{
+      const r = await Store.studentLogin(s.id, code, pin);
+      S.token=r.token; S.student=r.student; S.cls=r.cls;
+      auth.save({token:r.token, student:r.student, cls:r.cls}, $('#keep').checked);
+      ls.set('bwb-last', {class_id:c.id, student_id:s.id});
+      header(); showStudentHome();
+    }catch(e){ $('#login').disabled = false; toast(e.message); }
+  };
+  $('#login').onclick = login;
+}
+
+/* ===== Student home ===== */
+async function loadHistory(){
+  const key = 'bwb-hist-'+S.student.id; let list, offline=false;
+  try{ list = await Store.mySessions(S.token); ls.set(key, list); }
+  catch(e){ if(isExpired(e)) throw e; list = ls.get(key, []); offline = true; }
+  const waiting = pending.mine().map(p=>({...p.sess, ...totals(p.sess.exercises), created_at:p.sess.done_at, pending:true}));
+  S.hist = [...waiting, ...list].sort(newestFirst);
+  S.A = analyse(S.hist);
+  return offline;
+}
+async function showStudentHome(){
+  header();
+  setView(`<h1>Hi ${esc(S.student.name.split(' ')[0])}</h1><div id="home" class="muted">Loading…</div>`);
+  let offline;
+  try{
+    const up = await flushPending(); if(up) toast(`${up} saved workout${up===1?'':'s'} uploaded`);
+    offline = await loadHistory();
+  }catch(e){ return fail('Could not load your workouts', e); }
+  const ready = readyCount(S.A), last = S.hist[0];
+  $('#home').className = '';
+  $('#home').innerHTML = `
+    <div class="btns">
+      <button class="btn" id="build">Build a workout</button>
+      ${last ? `<button class="btn ghost" id="repeat">Repeat last workout</button>` : ''}
+      ${last && ready ? `<button class="btn ghost" id="levelup">Repeat with ${ready} level-up${ready===1?'':'s'}</button>` : ''}
+    </div>
+    ${offline ? `<p class="muted small">Showing the workouts saved on this device. Connect to the internet to see the latest.</p>` : ''}
+    <div id="hist" style="margin-top:18px">${progressHTML(S.hist, S.cls.weekly_goal||3, S.A)}</div>`;
+  wireCharts();
+  $('#build').onclick = () => { S.sel = []; showBuilder(); };
+  const fromLast = bump => {
+    S.settings = {work:last.work_sec, rest:last.rest_sec, rounds:last.rounds};
+    S.sel = last.exercises.map(e=>{ const fid=famIdOf(e), f=S.A.fams[fid]; return {fam:fid, lvl: bump && f?.status==='ready' && e.level===f.level ? e.level+1 : e.level}; }).filter(x=>FAM[x.fam]);
+    showBuilder();
+  };
+  if($('#repeat')) $('#repeat').onclick = () => fromLast(false);
+  if($('#levelup')) $('#levelup').onclick = () => fromLast(true);
+}
+
+/* ===== Builder ===== */
+const seg = (k,label,opts,suf) => `<span><label>${label}</label><span class="seg" role="group" aria-label="${label}">${opts.map(v=>`<button type="button" data-set="${k}" data-val="${v}" aria-pressed="${S.settings[k]===v}">${v}${suf}</button>`).join('')}</span></span>`;
+function famRow(f){
+  const me = S.A?.fams[f.id];
+  const tag = l => !me ? '' : l===me.level ? '<em class="tag">Your level</em>' : (me.status==='ready' && l===me.level+1) ? '<em class="tag">Try this</em>' : '';
+  return `<div class="fam" data-fam="${f.id}">
+    <div class="fam-name">${esc(f.name)}${me?` <span class="muted small">best ${me.best}${unitWord(me.unit)} at level ${me.level}</span>`:''}</div>
+    <div class="lv">${f.levels.map(l=>`<button type="button" class="chip" data-fam="${f.id}" data-lvl="${l.lvl}" style="${lc(l.lvl)}" aria-pressed="false"><small>Level ${l.lvl}${l.u==='sec'?', hold':''}${tag(l.lvl)}</small>${esc(l.n)}<span class="ord" hidden></span></button>`).join('')}</div>
+    <p class="cue" hidden></p>
+  </div>`;
+}
+function showBuilder(){
+  setView(`<h1>Build your workout</h1>
+    <p class="muted">Pick one level per movement, 8 to 12 exercises in total. They run in the order you pick them. For a full-body session, include Legs, Upper body and Core.${S.A && Object.keys(S.A.fams).length ? ' <b>Your level</b> shows where you are, <b>Try this</b> means you are ready to step up.' : ''}</p>
+    <div class="panel setrow">${seg('work','Work',[30,40,45],'s')}${seg('rest','Rest',[15,20,30],'s')}${seg('rounds','Rounds',[1,2,3],'')}</div>
+    ${REGIONS.map(r=>`<h2>${r}</h2>` + FAMILIES.filter(f=>f.region===r).map(famRow).join('')).join('')}
+    <div class="dock" id="dock"></div>`);
+  view.onclick = e => {
+    const chip = e.target.closest('.chip');
+    if(chip) return toggleEx(chip.dataset.fam, +chip.dataset.lvl);
+    const sb = e.target.closest('[data-set]');
+    if(sb){ S.settings[sb.dataset.set] = +sb.dataset.val; $$(`[data-set="${sb.dataset.set}"]`).forEach(b=>b.setAttribute('aria-pressed', b===sb)); refreshBuilder(); }
+  };
+  refreshBuilder();
+}
+function toggleEx(fam, lvl){
+  const i = S.sel.findIndex(x=>x.fam===fam);
+  if(i>-1){ if(S.sel[i].lvl===lvl) S.sel.splice(i,1); else S.sel[i].lvl=lvl; }
+  else { if(S.sel.length>=MAX_EX) return toast(`Maximum ${MAX_EX} exercises. Remove one first.`); S.sel.push({fam,lvl}); }
+  refreshBuilder();
+}
+function refreshBuilder(){
+  $$('.chip').forEach(b=>{
+    const i = S.sel.findIndex(x=>x.fam===b.dataset.fam && x.lvl===+b.dataset.lvl);
+    b.setAttribute('aria-pressed', i>-1);
+    const o=b.querySelector('.ord'); o.hidden = i<0; o.textContent = i+1;
+  });
+  $$('.fam').forEach(row=>{
+    const s = S.sel.find(x=>x.fam===row.dataset.fam), cue=row.querySelector('.cue');
+    cue.hidden = !s; if(s) cue.textContent = FAM[s.fam].levels[s.lvl-1].c;
+  });
+  const n=S.sel.length, {work,rest,rounds}=S.settings;
+  const mins = Math.round((10 + rounds*n*work + Math.max(0,rounds*n-1)*rest)/60);
+  const cov = REGIONS.map(r=>({r, c:S.sel.filter(x=>FAM[x.fam].region===r).length}));
+  $('#dock').innerHTML = `<div class="dock-in">
+    <div><b>${n} chosen</b> <span class="muted">${n<MIN_EX ? `pick ${MIN_EX-n} more` : `about ${mins} min`}</span>
+      <div class="cover">${cov.map(o=>`<span class="${o.c?'on':''}">${o.r} ${o.c}</span>`).join('')}</div></div>
+    <div class="actions">${n?'<button class="btn ghost small" id="clear">Clear</button>':''}<button class="btn" id="start" ${n<MIN_EX||n>MAX_EX?'disabled':''}>Start</button></div></div>`;
+  $('#start').onclick = startWorkout;
+  if($('#clear')) $('#clear').onclick = () => { S.sel = []; refreshBuilder(); };
+}
+
+/* ===== Workout player ===== */
+let P=null, audio=null, wake=null, timerId=null;
+function beep(f=880,d=.12,delay=0){
+  try{ if(!audio) return; const o=audio.createOscillator(), g=audio.createGain(), t=audio.currentTime+delay;
+    o.frequency.value=f; o.connect(g); g.connect(audio.destination);
+    g.gain.setValueAtTime(.25,t); g.gain.exponentialRampToValueAtTime(.001,t+d); o.start(t); o.stop(t+d);
+  }catch(e){}
+}
+async function keepAwake(){ try{ wake = await navigator.wakeLock?.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', () => { if(P && timerId && document.visibilityState==='visible') keepAwake(); });
+async function startWorkout(){
+  try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume && audio.resume(); }catch(e){}
+  keepAwake();
+  const {work,rest,rounds} = S.settings;
+  const ex = S.sel.map(s=>{ const f=FAM[s.fam], l=f.levels[s.lvl-1]; return {fid:f.id, family:f.name, name:l.n, level:l.lvl, unit:l.u, cue:l.c, half:/halfway/i.test(l.c), results:Array(rounds).fill(null)}; });
+  const phases = [{type:'ready', dur:10, ex:0, round:0}];
+  for(let r=0;r<rounds;r++) ex.forEach((_,i)=>{
+    phases.push({type:'work', dur:work, ex:i, round:r});
+    if(!(r===rounds-1 && i===ex.length-1)) phases.push({type:'rest', dur:rest, ex:i, round:r});
+  });
+  P = {ex, phases, i:-1, started:Date.now(), paused:false};
+  const el=document.createElement('div'); el.id='player'; el.className='player';
+  el.setAttribute('role','dialog'); el.setAttribute('aria-label','Workout timer');
+  document.body.appendChild(el); document.body.style.overflow='hidden';
+  startPhase(0); timerId = setInterval(tick,200);
+}
+function startPhase(i){
+  P.i=i; const ph=P.phases[i];
+  if(!ph) return finishWorkout();
+  if(ph.type==='rest'){
+    const e=P.ex[ph.ex];
+    if(e.results[ph.round]==null) e.results[ph.round] = e.unit==='sec' ? S.settings.work : (ph.round>0 && e.results[ph.round-1]!=null ? e.results[ph.round-1] : 0);
+  }
+  P.end = Date.now()+ph.dur*1000; P.shown=null; P.paused=false; P.halfDone=false;
+  renderPhase();
+}
+function renderPhase(){
+  const ph=P.phases[P.i], e=P.ex[ph.ex], el=$('#player'), N=P.ex.length, R=S.settings.rounds;
+  const nw = P.phases.slice(P.i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
+  let main='';
+  if(ph.type==='rest'){
+    el.className='player rest'; el.style.cssText = lc(ne?ne.level:e.level);
+    main = `<div class="p-phase">Rest</div><div class="p-time" id="pt">${ph.dur}</div>
+      <div class="p-log"><p><b>${esc(e.name)}</b>: ${e.unit==='sec'?'seconds held':'reps done'}</p>
+        <div class="stepper"><button type="button" data-d="-1" aria-label="One less">−</button><input id="sv" type="number" inputmode="numeric" min="0" value="${e.results[ph.round]}" aria-label="Your score"><button type="button" data-d="1" aria-label="One more">+</button></div></div>
+      ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span></div>`:''}`;
+  } else {
+    el.className='player'; el.style.cssText = lc(e.level);
+    const label = ph.type==='ready' ? 'Get ready' : (e.unit==='sec' ? 'Hold' : 'Go, count your reps');
+    main = `<div class="p-phase" id="pph">${label}</div><div class="p-time" id="pt">${ph.dur}</div>
+      <div class="p-name">${esc(e.name)}</div><div class="p-sub">Level ${e.level}</div><p class="p-cue">${esc(e.cue)}</p>`;
+  }
+  el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
+    <div class="p-top"><span>Round ${ph.round+1} of ${R}</span><span>Exercise ${ph.ex+1} of ${N}</span></div>
+    <div class="p-main">${main}</div>
+    <div class="p-ctrl"><button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button><button class="pbtn" id="skip">Skip</button><button class="pbtn" id="quit">Quit</button></div>`;
+  $('#pp').onclick = togglePause;
+  $('#skip').onclick = () => startPhase(P.i+1);
+  $('#quit').onclick = () => { if(confirm('Quit this workout? Nothing will be saved.')){ cleanupPlayer(); showBuilder(); } };
+  if(ph.type==='rest'){
+    const inp=$('#sv'), set=v=>{ const n=Math.max(0, parseInt(v,10)||0); e.results[ph.round]=n; inp.value=n; };
+    inp.oninput = () => { e.results[ph.round] = Math.max(0, parseInt(inp.value,10)||0); };
+    el.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>set((e.results[ph.round]||0)+(+b.dataset.d)));
+  }
+}
+function tick(){
+  if(!P || P.paused) return;
+  const ph=P.phases[P.i], ms=P.end-Date.now(), s=Math.max(0,Math.ceil(ms/1000));
+  if(s!==P.shown){ P.shown=s; const t=$('#pt'); if(t) t.textContent=s; if(s>0 && s<=3) beep(660,.1); }
+  if(ph.type==='work' && P.ex[ph.ex].half && !P.halfDone && s<=Math.floor(ph.dur/2) && s>3){
+    P.halfDone=true; beep(880,.12); beep(880,.12,.2);
+    const t=$('#pph'); if(t) t.textContent='Switch sides';
+  }
+  if(ms<=0){ beep(1046,.35); startPhase(P.i+1); }
+}
+function togglePause(){
+  if(P.paused){ P.end=Date.now()+P.left; P.paused=false; }
+  else { P.left=P.end-Date.now(); P.paused=true; }
+  $('#pp').textContent = P.paused ? 'Resume' : 'Pause';
+}
+function cleanupPlayer(){
+  clearInterval(timerId); timerId=null;
+  $('#player')?.remove(); document.body.style.overflow='';
+  try{ wake?.release(); }catch(e){} wake=null;
+}
+function finishWorkout(){
+  P.duration = Math.round((Date.now()-P.started)/1000);
+  P.doneAt = new Date().toISOString();
+  cleanupPlayer(); showSummary();
+}
+
+/* ===== Summary and save ===== */
+function showSummary(){
+  const {work,rest,rounds}=S.settings, prevPB = S.A?.pb || {}; let rpe=null;
+  P.ex.forEach(e=>{ e.results = e.results.map(v => v==null ? (e.unit==='sec'?work:'') : v); });
+  const pbCell = e => {
+    const best = Math.max(...e.results.map(v=>+v||0)), before = prevPB[e.name];
+    if(before==null) return `<span class="muted">First time</span>`;
+    return best > before ? `<b>New best!</b> <span class="muted">was ${before}</span>` : `<span class="muted">${before}</span>`;
+  };
+  setView(`<h1>Workout done</h1>
+    <p class="muted">Check your scores, rate how hard it felt, then save.</p>
+    <div class="tbl-wrap panel"><table>
+      <thead><tr><th>Exercise</th><th>Level</th>${Array.from({length:rounds},(_,r)=>`<th>Round ${r+1}</th>`).join('')}<th>Personal best</th></tr></thead>
+      <tbody>${P.ex.map((e,i)=>`<tr><td>${esc(e.name)}<div class="muted small">${e.unit==='sec'?'seconds':'reps'}</div></td>
+        <td><span class="lvtag" style="${lc(e.level)}">Level ${e.level}</span></td>
+        ${e.results.map((v,r)=>`<td><input class="num" type="number" min="0" inputmode="numeric" data-i="${i}" data-r="${r}" value="${v}" aria-label="${esc(e.name)} round ${r+1}"></td>`).join('')}
+        <td id="pb${i}">${pbCell(e)}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <h2>How hard was it?</h2><p class="muted">1 is very easy, 10 is maximum effort.</p>
+    <div class="rpe">${Array.from({length:10},(_,k)=>`<button type="button" data-rpe="${k+1}" aria-pressed="false">${k+1}</button>`).join('')}</div>
+    <p style="margin-top:26px"><button class="btn" id="save">Save workout</button> <button class="btn ghost" id="discard">Discard</button></p>`);
+  $$('input.num').forEach(inp=>inp.oninput=()=>{
+    const i=+inp.dataset.i; P.ex[i].results[+inp.dataset.r] = inp.value==='' ? '' : Math.max(0,parseInt(inp.value,10)||0);
+    $('#pb'+i).innerHTML = pbCell(P.ex[i]);
+  });
+  $$('[data-rpe]').forEach(b=>b.onclick=()=>{ rpe=+b.dataset.rpe; $$('[data-rpe]').forEach(x=>x.setAttribute('aria-pressed',x===b)); });
+  $('#discard').onclick = () => { if(confirm('Discard this workout?')) showStudentHome(); };
+  $('#save').onclick = async () => {
+    if(P.ex.some(e=>e.results.some(v=>v===''))) return toast('Fill in every score.');
+    if(!rpe) return toast('Choose how hard it felt, from 1 to 10.');
+    const exercises = P.ex.map(e=>({fid:e.fid, family:e.family, name:e.name, level:e.level, unit:e.unit, results:e.results.map(Number)}));
+    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, done_at:P.doneAt };
+    const pbs = exercises.filter(e=>prevPB[e.name]!=null && Math.max(...e.results)>prevPB[e.name]).length;
+    const msg = `Workout saved${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
+    $('#save').disabled = true;
+    try{ await Store.addSession(S.token, sess); toast(msg); showStudentHome(); }
+    catch(e){
+      if(isNetErr(e)){ pending.add(sess); toast('No connection. The workout is saved on this device and uploads when you are back online.'); return showStudentHome(); }
+      $('#save').disabled=false; fail('Could not save', e);
+    }
+  };
+}
+
+/* ===== Teacher ===== */
+function showTeacherLogin(){
+  setView(`<h1>Teacher</h1><div class="panel">
+    <label class="field"><span>Teacher PIN</span><input id="tp" type="password" autocomplete="current-password"></label>
+    <button class="btn" id="go">Log in</button> <button class="btn ghost" id="back">Back</button></div>`);
+  const go = async () => {
+    $('#go').disabled = true;
+    try{ const r = await Store.teacherLogin($('#tp').value); S.teacher = r.token; tabStore.set('bwb-teacher', r.token); header(); showTeacherHome(); }
+    catch(e){ $('#go').disabled = false; toast(e.message); }
+  };
+  $('#go').onclick = go; $('#tp').onkeydown = e => { if(e.key==='Enter') go(); };
+  $('#back').onclick = showHome;
+}
+const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<option value="${n}" ${n===v?'selected':''}>${n} per week</option>`).join('')}</select>`;
+async function showTeacherHome(){
+  header();
+  setView(`<h1>Classes</h1>
+    <div class="panel"><div class="h3">Add a class</div>
+      <div class="row3"><label class="field"><span>Class name</span><input id="cn" placeholder="e.g. 9C"></label>
+      <label class="field"><span>Class code</span><input id="cc" placeholder="Students type this to join"></label>
+      <label class="field"><span>Weekly goal</span>${goalSelect('cg')}</label></div>
+      <button class="btn" id="add">Add class</button></div>
+    <div class="between"><h2>Your classes</h2><button class="btn ghost small" id="all">Download all classes (.xlsx)</button></div>
+    <div id="list" class="muted">Loading…</div>
+    <details class="panel" style="margin-top:32px"><summary>Change teacher PIN</summary>
+      <div class="row2"><label class="field"><span>Current PIN</span><input id="op" type="password" autocomplete="current-password"></label>
+      <label class="field"><span>New PIN, at least 6 characters</span><input id="np" type="password" autocomplete="new-password"></label></div>
+      <button class="btn small" id="chp">Change PIN</button>
+      <p class="muted small">This PIN is shared by every teacher in the department.</p></details>`);
+  $('#add').onclick = async () => {
+    const name=$('#cn').value.trim(), code=$('#cc').value.trim();
+    if(!name || code.length<3) return toast('Enter a class name and a class code of at least 3 characters.');
+    try{ await Store.tAddClass(S.teacher, name, code, +$('#cg').value); toast(`${name} added`); showTeacherHome(); }catch(e){ fail('Could not add the class', e); }
+  };
+  $('#all').onclick = downloadAll;
+  $('#chp').onclick = async () => {
+    try{ await Store.tChangePin(S.teacher, $('#op').value, $('#np').value); $('#op').value=$('#np').value=''; toast('Teacher PIN changed.'); }
+    catch(e){ fail('Could not change the PIN', e); }
+  };
+  try{
+    const classes = await Store.tClasses(S.teacher);
+    if(!classes.length){ $('#list').innerHTML = '<p>No classes yet. Add your first class above.</p>'; return; }
+    $('#list').innerHTML = `<div class="clist">${classes.map(c=>`<div class="panel ccard">
+      <div><b>${esc(c.name)}</b><div class="muted">${c.students} students, ${c.workouts} workouts. Code: ${esc(c.code)}. Goal: ${c.weekly_goal} per week</div></div>
+      <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`).join('')}</div>`;
+    $$('[data-open]').forEach(b=>b.onclick=()=>showClass(classes.find(c=>c.id===b.dataset.open)));
+    $$('[data-dl]').forEach(b=>b.onclick=()=>downloadClass(classes.find(c=>c.id===b.dataset.dl)));
+  }catch(e){ if(isExpired(e)) return logout(e.message); $('#list').textContent = 'Could not load classes: '+e.message; }
+}
+async function showClass(c){
+  setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
+    <h1>${esc(c.name)}</h1>
+    <p><button class="btn" id="dl">Download ${esc(c.name)} (.xlsx)</button></p>
+    <div class="panel"><div class="h3">Class settings</div>
+      <div class="row2"><label class="field"><span>Class code</span><input id="ecode" value="${esc(c.code)}"></label>
+      <label class="field"><span>Weekly goal</span>${goalSelect('egoal', c.weekly_goal)}</label></div>
+      <button class="btn small" id="save">Save settings</button></div>
+    <h2>Students</h2>
+    <div class="panel"><label class="field"><span>Add students, one name per line</span><textarea id="names" rows="5" placeholder="Paste names from your class list"></textarea></label>
+      <button class="btn small" id="addn">Add students</button></div>
+    <div id="studs" class="tbl-wrap muted" style="margin-top:12px">Loading…</div>
+    <h2>Workouts</h2><div id="sess" class="tbl-wrap muted">Loading…</div>
+    <p style="margin-top:40px"><button class="btn danger small" id="del">Delete class and all its data</button></p>`);
+  $('#back').onclick = showTeacherHome;
+  $('#dl').onclick = () => downloadClass(c);
+  $('#save').onclick = async () => {
+    const code=$('#ecode').value.trim(), goal=+$('#egoal').value;
+    try{ await Store.tUpdateClass(S.teacher, c.id, code, goal); c.code=code; c.weekly_goal=goal; toast('Settings saved'); load(); }catch(e){ fail('Could not save', e); }
+  };
+  $('#del').onclick = async () => { if(confirm(`Delete ${c.name}, its students and all their workouts? This cannot be undone.`)){ try{ await Store.tDeleteClass(S.teacher, c.id); toast(`${c.name} deleted`); showTeacherHome(); }catch(e){ fail('Could not delete', e); } } };
+  $('#addn').onclick = async () => {
+    const names = $('#names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    if(!names.length) return toast('Paste at least one name.');
+    try{ const n = await Store.tAddStudents(S.teacher, c.id, names); toast(`${n} student${n===1?'':'s'} added`); $('#names').value=''; load(); }catch(e){ fail('Could not add students', e); }
+  };
+  async function load(){
+    try{
+      const [st,ss] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id)]);
+      const goal = c.weekly_goal||3;
+      $('#studs').innerHTML = st.length ? `<table><thead><tr><th>Name</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
+        ${st.map(s=>{ const mine=ss.filter(x=>x.student_id===s.id), w=weekStats(mine,goal), A=analyse(mine);
+          return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
+          <td>${mine.length?avgLvl(mine[0]):''}</td><td>${mine.length?readyCount(A):''}</td><td>${mine[0]?fmtDate(mine[0].created_at):''}</td><td>${s.has_pin?'Set':'Not set'}</td>
+          <td class="actions">${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
+        : '<p>No students yet. Paste your class list above.</p>';
+      $('#sess').innerHTML = ss.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th><th>Minutes</th></tr></thead><tbody>
+        ${ss.map(s=>`<tr><td>${fmtDate(s.created_at)}</td><td>${fmtTime(s.created_at)}</td><td>${esc(s.student_name)}</td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${Math.round(s.duration_sec/60)}</td></tr>`).join('')}</tbody></table>`
+        : '<p>No workouts logged yet.</p>';
+      $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id)); });
+      $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
+      $$('[data-rm]').forEach(b=>b.onclick=async()=>{ const s=st.find(x=>x.id===b.dataset.rm); if(confirm(`Remove ${s.name}? Their past workouts stay in the results.`)){ try{ await Store.tRemoveStudent(S.teacher, s.id); load(); }catch(e){ fail('Could not remove', e); } } });
+    }catch(e){ if(isExpired(e)) return logout(e.message); $('#studs').textContent = 'Could not load: '+e.message; }
+  }
+  load();
+}
+function showTeacherStudent(c, s, sessions){
+  setView(`<p><button class="btn ghost small" id="back">Back to ${esc(c.name)}</button></p>
+    <h1>${esc(s.name)}</h1><p class="muted">${esc(c.name)}</p>
+    ${progressHTML(sessions, c.weekly_goal||3, analyse(sessions), false)}`);
+  wireCharts();
+  $('#back').onclick = () => showClass(c);
+}
+
+/* ===== Excel export ===== */
+const H_WORK = ['Date','Time','Student','Exercises','Rounds','Work (s)','Rest (s)','Average level','Total reps','Total hold (s)','Duration (min)','Effort (1-10)'];
+const H_EX = ['Date','Time','Student','Movement','Exercise','Level','Unit','Round 1','Round 2','Round 3','Best','Total'];
+const H_ST = ['Student','Workouts','This week','Weekly goal','Streak (weeks)','Last workout','Total reps','First average level','Latest average level','Ready to level up'];
+const H_PR = ['Student','Movement','Current level','Best round','Unit','Times at this level','Next step'];
+const STATUS_TXT = {ready:'Ready for next level', working:'Keep going', top:'Top level', mastered:'Top level mastered'};
+const rowsWork = ss => ss.map(s=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Exercises':s.exercises.length,'Rounds':s.rounds,'Work (s)':s.work_sec,'Rest (s)':s.rest_sec,'Average level':avgLvl(s),'Total reps':s.total_reps,'Total hold (s)':s.total_hold_sec,'Duration (min)':+(s.duration_sec/60).toFixed(1),'Effort (1-10)':s.rpe}));
+const rowsEx = ss => ss.flatMap(s=>s.exercises.map(e=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Movement':e.family,'Exercise':e.name,'Level':e.level,'Unit':e.unit==='sec'?'seconds':'reps','Round 1':e.results[0]??'','Round 2':e.results[1]??'','Round 3':e.results[2]??'','Best':Math.max(...e.results),'Total':sum(e.results)})));
+const rowsSt = (st,ss,goal) => st.map(x=>{ const m=ss.filter(s=>s.student_id===x.id), w=weekStats(m,goal);
+  return {'Student':x.name,'Workouts':m.length,'This week':w.thisWeek,'Weekly goal':goal,'Streak (weeks)':w.streak,'Last workout':m[0]?fmtDate(m[0].created_at):'','Total reps':sum(m.map(s=>s.total_reps)),
+    'First average level':m.length?avgLvl(m[m.length-1]):'','Latest average level':m.length?avgLvl(m[0]):'','Ready to level up':m.length?readyCount(analyse(m)):''}; });
+const rowsPr = (st,ss) => st.flatMap(x=>{ const A=analyse(ss.filter(s=>s.student_id===x.id));
+  return FAMILIES.map(f=>A.fams[f.id]).filter(Boolean).map(f=>({'Student':x.name,'Movement':FAM[f.fid].name,'Current level':f.level,'Best round':f.best,'Unit':f.unit==='sec'?'seconds':'reps','Times at this level':f.times,'Next step':STATUS_TXT[f.status]})); });
+function sheet(rows, headers){
+  const ws = rows.length ? XLSX.utils.json_to_sheet(rows,{header:headers}) : XLSX.utils.aoa_to_sheet([headers]);
+  ws['!cols'] = headers.map(h=>({wch: Math.min(40, Math.max(h.length, ...rows.map(r=>String(r[h]??'').length)) + 2)}));
+  return ws;
+}
+const fileSafe = s => s.replace(/[\\/:*?"<>|]/g,'').trim() || 'class';
+function sheetName(name, used){
+  let base = name.replace(/[\[\]*?\/\\:]/g,'').slice(0,28) || 'Class', n = base, k = 2;
+  while(used.has(n.toLowerCase())) n = `${base} ${k++}`;
+  used.add(n.toLowerCase()); return n;
+}
+async function downloadClass(c){
+  if(!window.XLSX) return toast('The Excel library did not load. Check your internet connection and reload.');
+  try{
+    const [st,ss] = await Promise.all([Store.tStudents(S.teacher, c.id), Store.tSessions(S.teacher, c.id)]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet(rowsSt(st,ss,c.weekly_goal||3),H_ST), 'Students');
+    XLSX.utils.book_append_sheet(wb, sheet(rowsPr(st,ss),H_PR), 'Progress');
+    XLSX.utils.book_append_sheet(wb, sheet(rowsWork(ss),H_WORK), 'Workouts');
+    XLSX.utils.book_append_sheet(wb, sheet(rowsEx(ss),H_EX), 'Exercise log');
+    XLSX.writeFile(wb, `${fileSafe(c.name)} bodyweight results.xlsx`);
+  }catch(e){ fail('Could not download', e); }
+}
+async function downloadAll(){
+  if(!window.XLSX) return toast('The Excel library did not load. Check your internet connection and reload.');
+  try{
+    const classes = await Store.tClasses(S.teacher);
+    if(!classes.length) return toast('No classes to download yet.');
+    const wb = XLSX.utils.book_new(), used = new Set();
+    for(const c of classes){ const ss = await Store.tSessions(S.teacher, c.id); XLSX.utils.book_append_sheet(wb, sheet(rowsWork(ss),H_WORK), sheetName(c.name,used)); }
+    XLSX.writeFile(wb, 'All classes bodyweight results.xlsx');
+  }catch(e){ fail('Could not download', e); }
+}
+
+/* ===== Start ===== */
+(async function boot(){
+  netBanner();
+  const t = tabStore.get('bwb-teacher');
+  if(t){ S.teacher = t; return showTeacherHome(); }
+  const a = auth.get();
+  if(a?.token){
+    S.token=a.token; S.student=a.student; S.cls=a.cls;
+    showStudentHome();
+    try{ const me = await Store.me(a.token); S.student=me.student; S.cls=me.cls; auth.update({...a, ...me}); header(); }
+    catch(e){ if(isExpired(e)) logout(e.message); }
+    return;
+  }
+  showHome();
+})();
+</script>
+</body>
+</html>

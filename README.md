@@ -1,0 +1,43 @@
+# Bodyweight Builder
+
+A home training app for PE students. Students build bodyweight workouts from 20 movements, each with 4 levels. They follow a timer, log their reps and holds, and see their progress over time. Teachers manage classes, set a weekly goal, follow each student's progression and download results as Excel files.
+
+The whole app is one file, [index.html](index.html). Data is stored in Supabase.
+
+## What students get
+
+- **Workout builder:** 8 to 12 exercises across Legs, Upper body, Core, Cardio and Balance, with 30, 40 or 45 s work, rest time and 1 to 3 rounds.
+- **Timer:** full-screen with beeps, a "switch sides" signal on one-sided exercises, and score logging during rest. The screen stays awake.
+- **Progress:** a weekly goal set by the teacher, a streak of weeks with the goal reached, a chart of average level over time, personal bests, and a table of their current level for each movement.
+- **Challenge:** a movement is marked **Ready for Level N** when:
+  - holds: the student held the full time in every round in their last two workouts at that level
+  - reps: the student has done that level at least twice, matched or beat their best reps per minute, and rated the workout 7/10 or easier
+
+  "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
+- **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
+- **Stay logged in:** students can stay logged in on their own device for 30 days.
+
+## What teachers get
+
+- Classes with a join code and a weekly goal (1 to 7 workouts)
+- Paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
+- A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
+- Excel export per class (Students, Progress, Workouts, Exercise log) or one file for all classes
+
+## Setup
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Open **SQL Editor**, paste all of [supabase/setup.sql](supabase/setup.sql) and run it. You can run it again safely, and it upgrades tables created by the earlier version of the app.
+3. In **Project Settings > API**, copy the Project URL and the `anon` public key into `CONFIG` at the top of the script in `index.html`.
+4. Host `index.html` anywhere static, for example GitHub Pages (Settings > Pages > deploy from `main`), Netlify or the school website.
+5. Log in as teacher with the PIN **`change-me-now`**, then change it straight away under **Change teacher PIN**. Use at least 6 characters and share it only with PE staff.
+
+If `CONFIG` is left empty, the app runs in **demo mode**: data stays in that browser and the teacher PIN is `2468`.
+
+## Security
+
+- The `anon` key in `index.html` is public by design. Row level security is on and there are no table policies, so the browser can only call the `bw_*` database functions.
+- Those functions check the class code, the PIN or a login token on the server. Students can only read and add their own workouts. Teacher actions need a teacher token, which lasts 12 hours.
+- PINs are stored as bcrypt hashes. 5 wrong student PINs lock that student for 10 minutes. 10 wrong teacher PINs lock teacher login for 15 minutes.
+- Choose class codes that are hard to guess. Anyone with the code can see the class list and set a PIN for a student who has not set one yet. If that happens, reset the PIN from the class page.
+- The data includes student names and activity, so check that this storage meets your school's data protection policy (for example GDPR).
