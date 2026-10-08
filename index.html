@@ -839,17 +839,43 @@ function planCardHTML(p, done, hasLevels){
     <div class="h3">${esc(p.title)}</div>
     ${p.note ? `<p style="margin:0 0 8px">${esc(p.note)}</p>` : ''}
     <p class="muted small" style="margin:0 0 10px">${p.exercises.length} exercises, ${p.rounds} round${p.rounds===1?'':'s'}, ${p.work_sec}s work, ${p.rest_sec}s rest.${done ? ' <b>Done</b>' : ''}</p>
-    <div class="btns"><button class="btn" id="planGo">${done ? 'Do it again' : 'Do this workout'}</button>
-      ${hasLevels ? `<button class="btn ghost" id="planMine">Do it at my levels</button>` : ''}</div></div>`;
+    <div class="btns"><button class="btn" id="planGo">${done ? 'Do it again' : 'See the workout'}</button></div></div>`;
 }
-function startFromPlan(p, mine){
-  S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
-  S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{
-    const f = mine && S.A.fams[x.fid];
-    return {fam:x.fid, lvl: f ? (f.status==='ready' ? f.level+1 : f.level) : x.lvl};
-  });
-  S.planId = p.id;
-  showBuilder();
+// The programme to follow: exercises in the teacher's order. Levels are fixed unless the teacher let students choose.
+function showPlanRun(p){
+  const rows = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fid:x.fid, free:!!x.free, lvl: x.free ? (S.A?.fams[x.fid]?.level || x.lvl) : x.lvl, sug:x.lvl}));
+  const {work_sec:w, rest_sec:r, rounds:R} = p, n = rows.length;
+  const mins = Math.round((10 + R*n*w + Math.max(0,R*n-1)*r)/60);
+  const late = p.due_on && p.due_on < ymd(new Date());
+  setView(`<p><button class="btn ghost small" id="back">Back</button></p>
+    <h1>${esc(p.title)}</h1>
+    ${p.due_on ? `<p class="muted" style="margin-top:-.3em">${late ? 'Was due' : 'Do it by'} ${fmtDay(p.due_on)}</p>` : ''}
+    ${p.note ? `<p>${esc(p.note)}</p>` : ''}
+    <p class="muted">${n} exercises in this order, ${R} round${R===1?'':'s'}, ${w}s work and ${r}s rest. About ${mins} minutes.${rows.some(x=>x.free) ? ' Where you see four levels, choose the one that challenges you.' : ''}</p>
+    <div class="clist">${rows.map((x,i)=>{
+      const f = FAM[x.fid], me = S.A?.fams[x.fid];
+      return x.free
+        ? `<div class="panel" data-row="${i}"><b>${i+1}. ${esc(f.name)}</b> <button type="button" class="link small" data-how="${x.fid}">How to</button>
+            <div class="lv">${f.levels.map(l=>`<button type="button" class="chip" data-run="${i}" data-lvl="${l.lvl}" style="${lc(l.lvl)}" aria-pressed="${l.lvl===x.lvl}"><small>Level ${l.lvl}${l.u==='sec'?', hold':''}${me && l.lvl===me.level ? '<em class="tag">Your level</em>' : ''}</small>${esc(l.n)}</button>`).join('')}</div>
+            <p class="cue" id="rc${i}">${esc(f.levels[x.lvl-1].c)}</p></div>`
+        : `<div class="panel" data-row="${i}"><b>${i+1}. ${esc(f.levels[x.lvl-1].n)}</b> <span class="lvtag" style="${lc(x.lvl)}">Level ${x.lvl}</span> <button type="button" class="link small" data-how="${x.fid}">How to</button>
+            <p class="cue" style="margin:6px 0 0">${esc(f.levels[x.lvl-1].c)}${f.levels[x.lvl-1].u==='sec' ? ' (hold)' : ''}</p></div>`;
+    }).join('')}</div>
+    <p style="margin-top:20px"><button class="btn" id="planStart">Start</button></p>`);
+  $('#back').onclick = showStudentHome;
+  view.onclick = e => {
+    const how = e.target.closest('[data-how]'); if(how) return showHow(how.dataset.how);
+    const c = e.target.closest('[data-run]'); if(!c) return;
+    const i = +c.dataset.run, l = +c.dataset.lvl; rows[i].lvl = l;
+    $$(`[data-run="${i}"]`).forEach(b=>b.setAttribute('aria-pressed', b===c));
+    $('#rc'+i).textContent = FAM[rows[i].fid].levels[l-1].c;
+  };
+  $('#planStart').onclick = () => {
+    S.settings = {work:w, rest:r, rounds:R};
+    S.sel = rows.map(x=>({fam:x.fid, lvl:x.lvl}));
+    S.planId = p.id;
+    startWorkout();
+  };
 }
 async function showStudentHome(){
   header();
@@ -884,8 +910,7 @@ async function showStudentHome(){
   $('#build').onclick = () => { S.sel = []; S.planId = null; showBuilder(); };
   if($('#fit')) $('#fit').onclick = showFitnessCheck;
   $('#lib').onclick = showLibrary;
-  if($('#planGo')) $('#planGo').onclick = () => startFromPlan(X.plan, false);
-  if($('#planMine')) $('#planMine').onclick = () => startFromPlan(X.plan, true);
+  if($('#planGo')) $('#planGo').onclick = () => showPlanRun(X.plan);
   const fromLast = bump => {
     S.settings = {work:last.work_sec, rest:last.rest_sec, rounds:last.rounds};
     S.sel = last.exercises.map(e=>{ const fid=famIdOf(e), f=S.A.fams[fid]; return {fam:fid, lvl: bump && f?.status==='ready' && e.level===f.level ? e.level+1 : e.level}; }).filter(x=>FAM[x.fam]);
@@ -912,7 +937,7 @@ function showBuilder(){
   setView(`${T ? `<p><button class="btn ghost small" id="cancelPlan">Back to ${esc(T.name)}</button></p>
       <h1>Challenge workout</h1>
       <p class="muted">Pick 8 to 12 exercises from the list at the level most students can manage. Students can do it as set or at their own levels.</p>
-      <div class="panel"><label class="field"><span>Title</span><input id="ptitle" maxlength="80" value="${esc(T.plan?.title || 'Workout of the week')}"></label>
+      <div class="panel"><label class="field"><span>Title</span><input id="ptitle" maxlength="80" value="${esc(T.plan?.title || 'Challenge workout')}"></label>
         <label class="field" style="margin:0"><span>Message to students (optional)</span><textarea id="pnote" rows="2" maxlength="500" placeholder="e.g. Core focus before our gymnastics unit">${esc(T.plan?.note || '')}</textarea></label>
         <label class="field" style="max-width:260px;margin:14px 0 0"><span>Do it by (optional)</span><input id="pdue" type="date" value="${esc(T.plan?.due_on || '')}"></label>
         <fieldset class="plain" style="margin-top:14px"><legend>Who gets this challenge</legend>
@@ -929,6 +954,8 @@ function showBuilder(){
   view.onclick = e => {
     const how = e.target.closest('[data-how]');
     if(how) return showHow(how.dataset.how);
+    const fr = e.target.closest('[data-free]');
+    if(fr){ const s = S.sel.find(x=>x.fam===fr.dataset.free); if(s){ s.free = fr.checked; refreshBuilder(); } return; }
     const chip = e.target.closest('.chip');
     if(chip) return toggleEx(chip.dataset.fam, +chip.dataset.lvl);
     const sb = e.target.closest('[data-set]');
@@ -954,7 +981,13 @@ function refreshBuilder(){
   });
   $$('.fam').forEach(row=>{
     const s = S.sel.find(x=>x.fam===row.dataset.fam), cue=row.querySelector('.cue');
-    cue.hidden = !s; if(s) cue.textContent = FAM[s.fam].levels[s.lvl-1].c;
+    cue.hidden = !s;
+    if(s){
+      cue.textContent = FAM[s.fam].levels[s.lvl-1].c;
+      if(S.planFor){   // teacher: fix the level, or let students pick theirs
+        cue.insertAdjacentHTML('beforeend', `<label class="check" style="margin:8px 0 0;color:var(--ink)"><input type="checkbox" data-free="${s.fam}" ${s.free?'checked':''}> <span><b>Students choose their own level</b> <span class="muted">${s.free ? `(Level ${s.lvl} is the suggested start)` : `(everyone does Level ${s.lvl})`}</span></span></label>`);
+      }
+    }
   });
   const n=S.sel.length, {work,rest,rounds}=S.settings;
   const mins = Math.round((10 + rounds*n*work + Math.max(0,rounds*n-1)*rest)/60);
@@ -972,7 +1005,7 @@ async function publishPlan(){
   const {work,rest,rounds} = S.settings;
   const targets = $$('[name="pC"]:checked').map(x=>S.tclasses.find(k=>k.id===x.value)).filter(Boolean);
   if(!targets.length) return toast('Choose at least one class to give the challenge to.');
-  const plan = {title, note:$('#pnote').value.trim(), due_on:$('#pdue').value || '', work_sec:work, rest_sec:rest, rounds, exercises:S.sel.map(x=>({fid:x.fam, lvl:x.lvl}))};
+  const plan = {title, note:$('#pnote').value.trim(), due_on:$('#pdue').value || '', work_sec:work, rest_sec:rest, rounds, exercises:S.sel.map(x=>({fid:x.fam, lvl:x.lvl, free:!!x.free}))};
   $('#start').disabled = true;
   let n = 0;
   try{ for(const k of targets){ await Store.tSetPlan(S.teacher, k.id, plan); n++; } }
@@ -1041,7 +1074,7 @@ function renderPhase(){
   $('#pp').onclick = togglePause;
   if($('#howp')) $('#howp').onclick = () => { const x = ph.type==='rest' ? ne : e; if(!P.paused) togglePause(); showHow(x.fid, x.level); };
   $('#skip').onclick = () => startPhase(P.i+1);
-  $('#quit').onclick = () => { if(confirm('Quit this workout? Nothing will be saved.')){ cleanupPlayer(); showBuilder(); } };
+  $('#quit').onclick = () => { if(confirm('Quit this workout? Nothing will be saved.')){ cleanupPlayer(); P.planId ? showStudentHome() : showBuilder(); } };
   if(ph.type==='rest'){
     const inp=$('#sv'), set=v=>{ const n=Math.max(0, parseInt(v,10)||0); e.results[ph.round]=n; inp.value=n; };
     inp.oninput = () => { e.results[ph.round] = Math.max(0, parseInt(inp.value,10)||0); };
@@ -1438,12 +1471,12 @@ async function showClass(c){
     $('#plan').innerHTML = P ? `<div class="panel"><div class="h3" style="margin:0 0 4px">${esc(P.title)}</div>${P.note ? `<p style="margin:0 0 6px">${esc(P.note)}</p>` : ''}
         <p class="muted small" style="margin:0 0 8px">Set on ${fmtDate(P.created_at)}${P.due_on ? `, <b>due ${fmtDay(P.due_on)}</b>` : ''}. ${P.exercises.length} exercises, ${P.rounds} round${P.rounds===1?'':'s'}, ${P.work_sec}s work, ${P.rest_sec}s rest. Done by <b>${doneBy} of ${st.length}</b> students.</p>
         ${P && st.length > doneBy ? `<details style="margin:0 0 10px"><summary class="small">Not done yet (${st.length-doneBy})</summary><p class="small" style="max-width:none">${st.filter(s=>!doneSet.has(s.id)).map(s=>esc(s.name)).join(', ')}</p></details>` : ''}
-        <p class="small" style="margin:0 0 12px;max-width:none">${P.exercises.map(x=>{ const l=FAM[x.fid]?.levels[x.lvl-1]; return l ? `<span style="white-space:nowrap"><span class="lvtag" style="${lc(x.lvl)}">L${x.lvl}</span> ${esc(l.n)}</span>` : ''; }).join(' &nbsp; ')}</p>
+        <p class="small" style="margin:0 0 12px;max-width:none">${P.exercises.map(x=>{ const l=FAM[x.fid]?.levels[x.lvl-1]; return !l ? '' : x.free ? `<span style="white-space:nowrap"><span class="lvtag" style="--lc:var(--muted);--lon:var(--paper)">Any</span> ${esc(FAM[x.fid].name)} <span class="muted">(student picks level)</span></span>` : `<span style="white-space:nowrap"><span class="lvtag" style="${lc(x.lvl)}">L${x.lvl}</span> ${esc(l.n)}</span>`; }).join(' &nbsp; ')}</p>
         <div class="btns"><button class="btn small" id="newPlan">Change it</button><button class="btn ghost small" id="clearPlan">Remove</button></div></div>`
       : `<div class="panel"><p style="margin:0 0 10px">No challenge workout set. Pick 8 to 12 exercises and students see it at the top of their page with the due date, ready to start.</p><button class="btn small" id="newPlan">Set a challenge workout</button></div>`;
     $('#newPlan').onclick = () => {
       S.planFor = {...c, plan:P};
-      S.sel = P ? P.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl})) : [];
+      S.sel = P ? P.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl, free:!!x.free})) : [];
       S.settings = P ? {work:P.work_sec, rest:P.rest_sec, rounds:P.rounds} : {work:40, rest:20, rounds:2};
       showBuilder();
     };
