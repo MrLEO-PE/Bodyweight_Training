@@ -29,6 +29,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   - It also recognises a form column from its values (10C, 10-C, 10/2), whatever the heading.
   - It can create new classes with a join code, and names already in a class are skipped.
   - Students already in another class are moved instead of duplicated. For example, a file with a form column splits a 170-student "Year 10" class into 10A, 10B, 10C… Their PIN, workouts and fitness checks go with them.
+  - "Start fresh" deletes all existing classes, students and workouts first (you must type DELETE), so you can replace a previous import with a new file.
   - It warns before creating a class of more than 60 students, since students pick their name from that class's list.
   - The file is read on the teacher's device: only names and classes are saved.
 - **Move a student** to another class from the class page, for example when they change form. Their PIN and history go with them.

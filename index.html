@@ -1497,7 +1497,8 @@ async function showImport(classId){
   try{ [classes, everyone] = await Promise.all([Store.tClasses(S.teacher), Store.tAllStudents(S.teacher)]); }catch(e){ return fail('Could not load classes', e); }
   const back = classes.find(c=>c.id===classId) || null;
   IM = {classes:classes.map(c=>({id:c.id, name:c.name, year_group:c.year_group})), back, preset:back?.id || null, include:{}, dest:{}, codes:{}, years:{}, goal:3, newName:'',
-    everyone, byName:new Map(), move:true};
+    everyone, byName:new Map(), move:true, fresh:false,
+    stats:{classes:classes.length, students:sum(classes.map(c=>c.students)), workouts:sum(classes.map(c=>c.workouts))}};
   everyone.forEach(s=>{ const k=norm(s.name); if(!IM.byName.has(k)) IM.byName.set(k, []); IM.byName.get(k).push(s); });
   setView(`<p><button class="btn ghost small" id="back">${back ? `Back to ${esc(back.name)}` : 'All classes'}</button></p>
     <h1>Import students</h1>
@@ -1610,11 +1611,11 @@ function imGroups(){
   }
   return {groups:[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label, undefined, {numeric:true})), noName, noClass};
 }
-const imDest = g => g.fixed ? g.fixed.id : IM.dest[g.key] ?? (IM.classes.find(c=>norm(c.name)===norm(g.label))?.id || 'new');
+const imDest = g => g.fixed ? g.fixed.id : IM.fresh ? 'new' : IM.dest[g.key] ?? (IM.classes.find(c=>norm(c.name)===norm(g.label))?.id || 'new');
 const imIncluded = g => IM.include[g.key] ?? (!IM.onlyPreset || imDest(g)===IM.preset);
 const imYear = g => IM.years[g.key] ?? (IM.map.year==='' ? '' : g.year || guessYear(g.label));
 // Students in the file who are already in exactly one other class (for example all of 'Year 10'): they can be moved
-const imMovers = (g, dest) => g.names.flatMap(n=>{
+const imMovers = (g, dest) => IM.fresh ? [] : g.names.flatMap(n=>{
   const hits = IM.byName.get(norm(n)) || [];
   if(hits.some(h=>h.class_id===dest)) return [];   // already in this class
   return hits.length===1 ? [{name:n, id:hits[0].id, from:hits[0].class_id}] : [];
@@ -1641,6 +1642,7 @@ function imPreview(){
           ${d==='new' ? `<div class="row2"><label class="field"><span class="small">Class code for students</span><input data-code="${esc(g.key)}" value="${esc(IM.codes[g.key])}" autocomplete="off"></label>
             <label class="field"><span class="small">Year group</span><input data-yr="${esc(g.key)}" list="yearListIm" maxlength="40" value="${esc(imYear(g))}" placeholder="e.g. Year 10" autocomplete="off"></label></div>` : ''}`}
         <details><summary class="small">See the names</summary><p class="small" style="max-width:none">${g.names.map(esc).join(', ')}</p></details></div>`; }).join('')}</div>
+    ${IM.classes.length && !IM.map.cls.startsWith('into:') ? `<label class="check" style="margin-top:16px"><input type="checkbox" id="imFresh" ${IM.fresh?'checked':''}> <span><b>Start fresh:</b> first delete all ${IM.stats.classes} existing class${IM.stats.classes===1?'':'es'}, ${IM.stats.students} student${IM.stats.students===1?'':'s'} and ${IM.stats.workouts} workout${IM.stats.workouts===1?'':'s'}, then import this file. This cannot be undone.</span></label>` : ''}
     ${anyMovers ? `<label class="check" style="margin-top:16px"><input type="checkbox" id="imMove" ${IM.move?'checked':''}> <span>Move students who are already in another class into their class above. Their PIN, workouts and fitness checks go with them.</span></label>` : ''}
     <p style="margin-top:16px"><button class="btn" id="imGo" ${total?'':'disabled'}>Import ${total} student${total===1?'':'s'} into ${inc.length} class${inc.length===1?'':'es'}</button></p>
     <p class="muted small">Names already in a class are skipped, so importing the same file twice is safe.</p>
@@ -1650,6 +1652,7 @@ function imPreview(){
   box.querySelectorAll('[data-dest]').forEach(x=>x.onchange=()=>{ IM.dest[x.dataset.dest] = x.value; imPreview(); });
   box.querySelectorAll('[data-code]').forEach(x=>x.oninput=()=>{ IM.codes[x.dataset.code] = x.value; });
   if($('#imMove')) $('#imMove').onchange = e => { IM.move = e.target.checked; };
+  if($('#imFresh')) $('#imFresh').onchange = e => { IM.fresh = e.target.checked; imPreview(); };
   $('#imGo').onclick = imImport;
 }
 async function imImport(){
@@ -1659,8 +1662,18 @@ async function imImport(){
     if(!g.label) return toast('Type a name for the new class.');
     if(String(IM.codes[g.key]||'').trim().length < 3) return toast(`The class code for ${g.label} needs at least 3 characters.`);
   }
+  if(IM.fresh && IM.classes.length){
+    const a = prompt(`This deletes ${IM.stats.classes} classes, ${IM.stats.students} students and ${IM.stats.workouts} workouts before importing. Type DELETE to confirm.`);
+    if(a===null || a.trim().toUpperCase()!=='DELETE') return toast('Nothing was deleted or imported.');
+  }
   const btn = $('#imGo'); btn.disabled = true; btn.textContent = 'Importing…';
   let added = 0, moved = 0, total = 0, made = 0;
+  try{
+    if(IM.fresh){
+      for(const c of IM.classes) await Store.tDeleteClass(S.teacher, c.id);
+      IM.classes = []; IM.everyone = []; IM.byName = new Map(); IM.back = null; IM.stats = {classes:0, students:0, workouts:0};
+    }
+  }catch(e){ btn.disabled = false; btn.textContent = 'Try again'; return fail('Could not delete the old classes', e); }
   const left = new Set(IM.everyone.map(s=>s.class_id));   // classes that had students before
   try{
     for(const g of todo){
