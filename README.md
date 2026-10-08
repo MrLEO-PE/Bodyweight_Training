@@ -43,6 +43,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
   - Choose whole year groups (forms added later join automatically), single forms, or both.
   - The card shows each form's part of the total, and students see their own form highlighted.
+- **Results board:** one page with every student, filtered by year group, class, period (this week, last 4 weeks, challenge workout, all time) and name, or showing only those who have done nothing. It has a by-class summary, links to each student's page, and downloads to Excel.
 - **Challenge results by student:** on each class page, a table ranks every student by points, shows who has not done the challenge, and gives the level and score of each exercise. It is also a sheet in the Excel export.
 - **Fitness checks:** open a check for a class with a name such as "Start of Term 1" and close it when done. The class page shows each student's first and latest results and the change.
 - **Demo videos:** paste your own video link for any of the 80 exercises. Without one, students get a YouTube search.

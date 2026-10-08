@@ -1386,7 +1386,7 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
-    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button></p>
+    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="board">Results board</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button></p>
     <div class="panel"><div class="h3">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
       <label class="field"><span>Year group</span><input id="cy" list="yearList" placeholder="e.g. Year 10" autocomplete="off"></label></div>
@@ -1418,6 +1418,7 @@ async function showTeacherHome(){
   $('#all').onclick = downloadAll;
   $('#imp').onclick = () => showImport();
   $('#lib').onclick = showLibrary;
+  $('#board').onclick = showBoard;
   $('#newPlanAll').onclick = () => {
     if(!(S.tclasses||[]).length) return toast('Add a class first.');
     S.planFor = {id:null, name:'your classes', plan:null}; S.sel = []; S.settings = {work:40, rest:20, rounds:2}; showBuilder();
@@ -1611,13 +1612,13 @@ function planResultsHTML(st, ss, P){
       ${P.exercises.map((_,k)=>{ const e = x?.exercises?.[k]; return `<td>${e ? `<span class="lvtag" style="${lc(e.level)}">L${e.level}</span> ${e.results.join(' / ')}${e.unit==='sec'?' s':''}` : ''}</td>`; }).join('')}</tr>`).join('')}
     </tbody></table></div></details>`;
 }
-function showTeacherStudent(c, s, sessions, tests){
-  setView(`<p><button class="btn ghost small" id="back">Back to ${esc(c.name)}</button></p>
+function showTeacherStudent(c, s, sessions, tests, back){
+  setView(`<p><button class="btn ghost small" id="back">${back ? 'Back to the results board' : 'Back to '+esc(c.name)}</button></p>
     <h1>${esc(s.name)}</h1><p class="muted">${esc(c.name)}</p>
     ${progressHTML(sessions, c.weekly_goal||3, analyse(sessions), false)}
     <h2>Fitness checks</h2>${tests.length ? testTableHTML(tests) : '<p class="muted">No fitness checks yet.</p>'}`);
   wireCharts();
-  $('#back').onclick = () => showClass(c);
+  $('#back').onclick = back || (() => showClass(c));
 }
 
 /* ===== Import students from a spreadsheet (Excel, LibreOffice, CSV, Google Sheets as .xlsx) =====
@@ -1869,6 +1870,97 @@ async function imImport(){
     + `${total>added+moved ? `. ${total-added-moved} were already there` : ''}.`
     + `${emptied.length ? ` ${emptied.join(', ')} ${emptied.length===1?'is':'are'} now empty: you can delete ${emptied.length===1?'it':'them'}.` : ''}`);
   IM.back ? showClass(IM.back) : showTeacherHome();
+}
+
+/* ===== Teacher results board: every student, filtered by year group, class, period and name ===== */
+let BD = null;
+async function showBoard(){
+  setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
+    <h1>Results board</h1>
+    <p class="muted">Every student's workouts and points. Points: 1 rep = 1 point, 1 second held = 1 point.</p>
+    <div class="panel">
+      <div class="row2"><label class="field"><span>Year group</span><select id="bY"></select></label>
+        <label class="field"><span>Class</span><select id="bC"></select></label></div>
+      <div class="row2"><label class="field"><span>Period</span><select id="bP">
+          <option value="week">This week</option><option value="4w">Last 4 weeks</option>
+          <option value="plan">Challenge workout</option><option value="all">All time</option></select></label>
+        <label class="field"><span>Find a student</span><input id="bQ" placeholder="Type part of a name" autocomplete="off"></label></div>
+      <label class="check" style="margin:0"><input type="checkbox" id="bN"> Only students with nothing done in this period</label>
+    </div>
+    <div id="bOut" class="muted" style="margin-top:14px">Loading every class…</div>`);
+  $('#back').onclick = showTeacherHome;
+  let classes, students, per;
+  try{
+    [classes, students] = await Promise.all([Store.tClasses(S.teacher), Store.tAllStudents(S.teacher)]);
+    per = await Promise.all(classes.map(c=>Promise.all([Store.tSessions(S.teacher, c.id), Store.tClassExtras(S.teacher, c.id)])));
+  }catch(e){ if(isExpired(e)) return logout(e.message); $('#bOut').textContent = 'Could not load: '+e.message; return; }
+  BD = {classes, students, data:new Map(classes.map((c,i)=>[c.id, {ss:per[i][0], plan:per[i][1].plan, tests:per[i][1].tests}])),
+        f:{...(BD?.f || {year:'', cls:'', period:'week', q:'', none:false})}};
+  const years = [...new Set(classes.map(c=>c.year_group || NO_YEAR))].sort((a,b)=>a===NO_YEAR?1:b===NO_YEAR?-1:a.localeCompare(b, undefined, {numeric:true}));
+  $('#bY').innerHTML = `<option value="">All year groups</option>` + years.map(y=>`<option value="${esc(y)}">${esc(y)}</option>`).join('');
+  const fillClasses = () => {
+    const cs = classes.filter(c=>!BD.f.year || (c.year_group || NO_YEAR)===BD.f.year).sort(byName);
+    if(BD.f.cls && !cs.some(c=>c.id===BD.f.cls)) BD.f.cls = '';
+    $('#bC').innerHTML = `<option value="">All classes${BD.f.year ? ' in '+esc(BD.f.year) : ''}</option>` + cs.map(c=>`<option value="${c.id}" ${c.id===BD.f.cls?'selected':''}>${esc(c.name)}</option>`).join('');
+  };
+  $('#bY').value = BD.f.year; fillClasses(); $('#bP').value = BD.f.period; $('#bQ').value = BD.f.q; $('#bN').checked = BD.f.none;
+  $('#bY').onchange = e => { BD.f.year = e.target.value; fillClasses(); renderBoard(); };
+  $('#bC').onchange = e => { BD.f.cls = e.target.value; renderBoard(); };
+  $('#bP').onchange = e => { BD.f.period = e.target.value; renderBoard(); };
+  $('#bQ').oninput = e => { BD.f.q = e.target.value; renderBoard(); };
+  $('#bN').onchange = e => { BD.f.none = e.target.checked; renderBoard(); };
+  renderBoard();
+}
+function boardRows(){
+  const {classes, students, data, f} = BD;
+  const from = f.period==='week' ? weekStart(Date.now()) : f.period==='4w' ? Date.now() - 28*864e5 : 0;
+  const cls = classes.filter(c=>(!f.year || (c.year_group || NO_YEAR)===f.year) && (!f.cls || c.id===f.cls));
+  const byId = new Map(cls.map(c=>[c.id, c]));
+  return students.filter(s=>byId.has(s.class_id) && (!f.q || norm(s.name).includes(norm(f.q)))).map(s=>{
+    const c = byId.get(s.class_id), D = data.get(c.id), mine = D.ss.filter(x=>x.student_id===s.id);
+    const best = D.plan ? bestOnPlan(mine, D.plan).get(s.id) : null;
+    const inPeriod = f.period==='plan' ? (best ? [best] : []) : mine.filter(x=>new Date(x.created_at).getTime() >= from);
+    return {s, c, D, mine, best, list:inPeriod, points:sum(inPeriod.map(pointsOf)), n:inPeriod.length,
+      last:mine[0]?.created_at || null, lvl:inPeriod.length ? avgLvl(inPeriod[0]) : ''};
+  }).filter(r=>!f.none || !r.n)
+    .sort((a,b)=>b.points-a.points || b.n-a.n || a.s.name.localeCompare(b.s.name));
+}
+function renderBoard(){
+  const rows = boardRows(), f = BD.f, plan = f.period==='plan';
+  const active = rows.filter(r=>r.n).length, total = sum(rows.map(r=>r.points));
+  const label = {week:'this week', '4w':'in the last 4 weeks', plan:'on the challenge workout', all:'in total'}[f.period];
+  // per-class summary when looking at several classes
+  const byClass = [...new Map(rows.map(r=>[r.c.id, r.c])).values()].sort(byName).map(c=>{
+    const rs = rows.filter(r=>r.c.id===c.id);
+    return {c, size:rs.length, active:rs.filter(r=>r.n).length, points:sum(rs.map(r=>r.points))};
+  });
+  $('#bOut').className = '';
+  $('#bOut').innerHTML = !rows.length ? '<p class="muted">No students match these filters.</p>' : `
+    <div class="tiles" style="margin-top:0">
+      <div class="tile"><b>${rows.length}</b><span>students shown</span></div>
+      <div class="tile"><b>${active} <span style="font-size:1rem">(${Math.round(active/rows.length*100)}%)</span></b><span>${plan ? 'did the challenge' : 'did at least one workout'}</span></div>
+      <div class="tile"><b>${num(total)}</b><span>points ${label}</span></div>
+    </div>
+    ${byClass.length > 1 && !f.none ? `<h2>By class</h2><div class="tbl-wrap panel"><table><thead><tr><th>Class</th><th>Students</th><th>${plan?'Did the challenge':'Active'}</th><th>Points ${label}</th><th>Points per student</th></tr></thead><tbody>
+      ${byClass.sort((a,b)=>b.points/b.size - a.points/a.size).map(x=>`<tr><td><button class="link" data-bcls="${x.c.id}">${esc(x.c.name)}</button></td><td>${x.size}</td><td>${x.active} (${Math.round(x.active/x.size*100)}%)</td><td>${num(x.points)}</td><td><b>${num(Math.round(x.points/x.size))}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
+    <div class="between"><h2>Students</h2><button class="btn ghost small" id="bDl">Download this view (.xlsx)</button></div>
+    <div class="tbl-wrap panel"><table><thead><tr><th>#</th><th>Student</th><th>Class</th><th>Points ${label}</th><th>${plan ? 'Challenge' : 'Workouts'}</th><th>Average level</th><th>Challenge workout</th><th>Last workout</th></tr></thead><tbody>
+    ${rows.map((r,i)=>`<tr${r.n ? '' : ' class="muted"'}><td>${r.n ? i+1 : ''}</td><td><button class="link" data-bst="${r.s.id}">${esc(r.s.name)}</button></td><td>${esc(r.c.name)}</td>
+      <td><b>${r.n ? num(r.points) : '0'}</b></td><td>${plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n}</td><td>${r.lvl}</td>
+      <td>${!r.D.plan ? '<span class="muted">none set</span>' : r.best ? `Done, ${num(pointsOf(r.best))} pts` : '<b>Not done</b>'}</td>
+      <td>${r.last ? fmtDate(r.last) : '<span class="muted">never</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+  $$('[data-bcls]').forEach(b=>b.onclick=()=>{ BD.f.cls = b.dataset.bcls; $('#bC').value = BD.f.cls; renderBoard(); });
+  $$('[data-bst]').forEach(b=>b.onclick=()=>{ const r = rows.find(x=>x.s.id===b.dataset.bst);
+    showTeacherStudent(r.c, {id:r.s.id, name:r.s.name}, r.mine, (r.D.tests||[]).filter(t=>t.student_id===r.s.id), showBoard); });
+  if($('#bDl')) $('#bDl').onclick = () => {
+    if(!window.XLSX) return toast('The Excel library did not load. Check your internet connection and reload.');
+    const H = ['Rank','Student','Class','Year group',`Points ${label}`, plan ? 'Challenge done' : 'Workouts','Average level','Challenge workout','Last workout'];
+    const data = rows.map((r,i)=>({'Rank':r.n?i+1:'','Student':r.s.name,'Class':r.c.name,'Year group':r.c.year_group||'',[`Points ${label}`]:r.points,
+      [plan ? 'Challenge done' : 'Workouts']: plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n,'Average level':r.lvl,
+      'Challenge workout':!r.D.plan ? '' : r.best ? `Done, ${pointsOf(r.best)} pts` : 'Not done','Last workout':r.last?fmtDate(r.last):''}));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, sheet(data, H), 'Results');
+    XLSX.writeFile(wb, `Results ${f.cls ? fileSafe(BD.classes.find(c=>c.id===f.cls).name) : f.year || 'all classes'} ${label}.xlsx`);
+  };
 }
 
 /* ===== Excel export ===== */
