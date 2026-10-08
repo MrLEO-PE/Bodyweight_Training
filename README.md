@@ -8,7 +8,11 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 
 - **Workout builder:** 8 to 12 exercises across Legs, Upper body, Core, Cardio and Balance, with 30, 40 or 45 s work, rest time and 1 to 3 rounds.
 - **Timer:** full-screen with beeps. Exercises cannot be skipped, only rests ("Skip rest"), so every exercise gets a score.
-- **Points and class leaderboard:** 1 rep = 1 point, 1 second held = 1 point. Students see their points after each workout and a class leaderboard for the challenge workout (best try counts) and for the week.
+- **Points:** each rep is 1 point and each second held is half a point, times the level (Level 1 x1, Level 2 x1.5, Level 3 x2, Level 4 x2.5), so choosing a harder level pays off.
+- **Leaderboards:** challenge workout (best try counts), this week, and **most improved** (this week compared with last week), plus a **form cup** ranking the forms of the year group by points per student.
+- **Rank titles:** Rookie, Athlete (1,000 points), Pro (4,000) and Legend (10,000), with a progress bar to the next rank.
+- **Badges:** 12 to collect (first workout, streaks, level up, all-rounder, early bird, record breaker...). New badges, level-ups, ranks and personal bests are celebrated with confetti.
+- **Weekly recap** of last week, **star of the week** chosen by the teacher, **Surprise me** and **Quick 8-minute** workouts at the student's own levels, and a **voice coach** in the timer (can be turned off).
 - **How it works:** a step-by-step tutorial with screenshots (images in [tutorial/](tutorial/)), open from the home page and the student page.
 - **Timer details:** full-screen with beeps, a "switch sides" signal on one-sided exercises, and score logging during rest. The screen stays awake.
 - **Progress:** a weekly goal set by the teacher, a streak of weeks with the goal reached, a chart of average level over time, personal bests, and a table of their current level for each movement.
@@ -43,6 +47,8 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
   - Choose whole year groups (forms added later join automatically), single forms, or both.
   - The card shows each form's part of the total, and students see their own form highlighted.
+- **Star of the week** per class, with a message, shown at the top of every student's page.
+- **Check flags:** scores that look too high (for example 90 reps in 40 seconds) are marked "Check" in the teacher tables, with the reason.
 - **Results board:** one page with every student, filtered by year group, class, period (this week, last 4 weeks, challenge workout, all time) and name, or showing only those who have done nothing. It has a by-class summary, links to each student's page, and downloads to Excel.
 - **Challenge results by student:** on each class page, a table ranks every student by points, shows who has not done the challenge, and gives the level and score of each exercise. It is also a sheet in the Excel export.
 - **Fitness checks:** open a check for a class with a name such as "Start of Term 1" and close it when done. The class page shows each student's first and latest results and the change.

@@ -194,6 +194,21 @@ fieldset.plain legend{font-weight:600;margin-bottom:6px;padding:0}
 .board .nm{flex:1}
 .board li.me{font-weight:700}
 .board li.me .rk{color:var(--ink)}
+.boards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.badge{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.badge i{font-style:normal;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:.85rem;background:var(--l3);color:var(--on3);flex:none}
+.badge b{display:block;font-size:.92rem;line-height:1.2}
+.badge span{font-size:.78rem;color:var(--muted);line-height:1.25;display:block}
+.badge.off{opacity:.55}
+.badge.off i{background:var(--line);color:var(--muted)}
+.rank .rankname{font-size:1.1rem;padding:.15em .7em}
+.rank .big{font-family:var(--display);font-weight:800;font-size:2rem;line-height:1}
+.starcard{border:2px solid var(--l3)}
+.celebrate{border:2px solid var(--l1)}
+.celebrate li{margin:2px 0}
+button.tag.flag{border:0;cursor:pointer;background:var(--l4);color:#fff;font:700 .72rem var(--body)}
+canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:120}
 .tut img{display:block;width:100%;max-width:340px;border:1px solid var(--line);border-radius:12px;margin:10px 0 4px}
 .tut .step{font-family:var(--display);font-weight:800;font-size:1.3rem}
 select.mv{width:auto;padding:.3em .5em;font-size:.9rem;border-radius:999px}
@@ -401,8 +416,12 @@ function byYear(classes){
 const yearOptions = classes => [...new Set(classes.map(c=>c.year_group).filter(Boolean))].sort((a,b)=>a.localeCompare(b, undefined, {numeric:true})).map(y=>`<option value="${esc(y)}">`).join('');
 const avgLvl = s => s.exercises?.length ? +(sum(s.exercises.map(e=>e.level))/s.exercises.length).toFixed(1) : 0;
 const unitWord = u => u==='sec' ? 's' : ' reps';
-// Points: 1 rep = 1 point, 1 second held = 1 point
-const pointsOf = s => (+s.total_reps || 0) + (+s.total_hold_sec || 0);
+// Points: each rep 1 point, each second held half a point, times the level (x1, x1.5, x2, x2.5).
+// The database stores the same number for each workout (bw__points in setup.sql).
+const POINTS_TEXT = 'Each rep is 1 point and each second held is half a point, times the level: Level 1 ×1, Level 2 ×1.5, Level 3 ×2, Level 4 ×2.5.';
+const levelMult = l => 1 + 0.5 * (Math.min(4, Math.max(1, +l || 1)) - 1);
+const calcPoints = ex => Math.round(sum((ex || []).map(e => sum((e.results || []).map(v => Math.min(500, Math.max(0, +v || 0)))) * (e.unit==='sec' ? 0.5 : 1) * levelMult(e.level))));
+const pointsOf = s => calcPoints(s.exercises);
 // A student's best session on a challenge workout
 function bestOnPlan(ss, P){
   const best = new Map();
@@ -461,6 +480,7 @@ function makeCloud(){
     tRemoveStudent: (tok, id) => rpc('bw_t_remove_student', {p_token:tok, p_student_id:id}),
     tSessions: (tok, cid) => rpc('bw_t_sessions', {p_token:tok, p_class_id:cid}),
     classBoard: tok => rpc('bw_class_board', {p_token:tok}),
+    tSetStar: (tok, cid, sid, msg) => rpc('bw_t_set_star', {p_token:tok, p_class_id:cid, p_student_id:sid || null, p_message:msg || ''}),
     studentExtras: tok => rpc('bw_student_extras', {p_token:tok}),
     addTest: (tok, r) => rpc('bw_add_test', {p_token:tok, p_r:r}),
     listDemos: () => rpc('bw_list_demos'),
@@ -534,11 +554,24 @@ const Local = {
   async classBoard(tok){
     const [d,s] = this._stu(tok), cid = s.class_id, plan = this._plan(d, cid), wk = weekStart(Date.now());
     const studs = d.students.filter(x=>x.class_id===cid), rank = (a,b)=>b.points-a.points || a.name.localeCompare(b.name);
-    const week = studs.map(st=>{ const ss = d.sessions.filter(x=>x.student_id===st.id && x.class_id===cid && new Date(x.created_at).getTime()>=wk);
-      return {id:st.id, name:st.name, points:sum(ss.map(pointsOf)), workouts:ss.length}; }).filter(x=>x.workouts).sort(rank);
+    const lwD = new Date(wk); lwD.setDate(lwD.getDate()-7); const lw = lwD.getTime();
+    const at = x => new Date(x.created_at).getTime();
+    const week = studs.map(st=>{ const mine = d.sessions.filter(x=>x.student_id===st.id && x.class_id===cid), ss = mine.filter(x=>at(x)>=wk);
+      return {id:st.id, name:st.name, points:sum(ss.map(pointsOf)), workouts:ss.length, last:sum(mine.filter(x=>at(x)>=lw && at(x)<wk).map(pointsOf))}; }).filter(x=>x.workouts).sort(rank);
     const best = bestOnPlan(d.sessions, plan);
     const planB = studs.filter(st=>best.has(st.id)).map(st=>({id:st.id, name:st.name, points:pointsOf(best.get(st.id))})).sort(rank);
-    return {class_size:studs.length, plan:planB, week};
+    const me = d.classes.find(c=>c.id===cid);
+    const cup = !me?.year_group ? [] : d.classes.filter(k=>norm(k.year_group)===norm(me.year_group)).sort(byName).map(k=>{ const ss = d.sessions.filter(x=>x.class_id===k.id);
+      return {id:k.id, name:k.name, size:d.students.filter(x=>x.class_id===k.id).length, week:sum(ss.filter(x=>at(x)>=wk).map(pointsOf)), last:sum(ss.filter(x=>at(x)>=lw && at(x)<wk).map(pointsOf))}; });
+    return {class_size:studs.length, plan:planB, week, cup};
+  },
+  _star(d, cid){ const c = d.classes.find(x=>x.id===cid), st = c?.star_student && d.students.find(x=>x.id===c.star_student);
+    return st ? {student_id:st.id, name:st.name, message:c.star_message || null, at:c.star_at} : null; },
+  async tSetStar(tok, cid, sid, msg){
+    const d=this._t(tok), c=d.classes.find(x=>x.id===cid);
+    if(sid && !d.students.some(x=>x.id===sid && x.class_id===cid)) throw new Error('Choose a student from this class.');
+    if(c){ c.star_student = sid || null; c.star_message = sid ? (msg||'').trim().slice(0,200) || null : null; c.star_at = sid ? new Date().toISOString() : null; }
+    this._save(d);
   },
   _plan(d, cid){ const p=(d.plans||[]).filter(x=>x.class_id===cid && x.active).sort(newestFirst)[0]; return p ? {...p} : null; },
   _inCh: (ch, c) => ch.class_ids.includes(c.id) || (!!c.year_group && (ch.year_groups||[]).some(y=>norm(y)===norm(c.year_group))),
@@ -551,7 +584,7 @@ const Local = {
   _testsAsc: a => [...a].sort((x,y)=>x.created_at.localeCompare(y.created_at)),
   async studentExtras(tok){
     const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id), today=ymd(new Date()), cutoff=ymd(addDays(-14));
-    return { plan:this._plan(d,c.id), test_label:c.test_label||null,
+    return { plan:this._plan(d,c.id), star:this._star(d,c.id), test_label:c.test_label||null,
       tests:this._testsAsc((d.tests||[]).filter(t=>t.student_id===s.id)),
       challenges:(d.challenges||[]).filter(ch=>this._inCh(ch, c) && ch.starts_on<=today && ch.ends_on>=cutoff).map(ch=>this._chl(d,ch)).sort((a,b)=>a.ends_on.localeCompare(b.ends_on)) };
   },
@@ -571,7 +604,7 @@ const Local = {
   },
   async tSetPlan(tok, cid, p){ const d=this._t(tok); d.plans ||= []; d.plans.forEach(x=>{ if(x.class_id===cid) x.active=false; }); d.plans.push({...p, id:uid(), class_id:cid, active:true, created_at:new Date().toISOString()}); this._save(d); },
   async tClearPlan(tok, cid){ const d=this._t(tok); (d.plans||[]).forEach(x=>{ if(x.class_id===cid) x.active=false; }); this._save(d); },
-  async tClassExtras(tok, cid){ const d=this._t(tok); return {plan:this._plan(d,cid), test_label:d.classes.find(c=>c.id===cid)?.test_label||null, tests:this._testsAsc((d.tests||[]).filter(t=>t.class_id===cid))}; },
+  async tClassExtras(tok, cid){ const d=this._t(tok); return {plan:this._plan(d,cid), star:this._star(d,cid), test_label:d.classes.find(c=>c.id===cid)?.test_label||null, tests:this._testsAsc((d.tests||[]).filter(t=>t.class_id===cid))}; },
   async tSetTestLabel(tok, cid, label){ const d=this._t(tok), c=d.classes.find(x=>x.id===cid); if(c) c.test_label=(label||'').trim()||null; this._save(d); },
   async tChallenges(tok){ const d=this._t(tok); return (d.challenges||[]).map(ch=>this._chl(d,ch)).sort((a,b)=>b.ends_on.localeCompare(a.ends_on)); },
   async tAddChallenge(tok, ch){
@@ -869,6 +902,143 @@ function planCardHTML(p, done, hasLevels){
     <p class="muted small" style="margin:0 0 10px">${p.exercises.length} exercises, ${p.rounds} round${p.rounds===1?'':'s'}, ${p.work_sec}s work, ${p.rest_sec}s rest.${done ? ' <b>Done</b>' : ''}</p>
     <div class="btns"><button class="btn" id="planGo">${done ? 'Do it again' : 'See the workout'}</button></div></div>`;
 }
+/* ===== Fun: ranks, badges, celebrations, weekly recap, form cup, star, surprise workouts, voice coach ===== */
+const RANKS = [{name:'Rookie', min:0, l:1}, {name:'Athlete', min:1000, l:2}, {name:'Pro', min:4000, l:3}, {name:'Legend', min:10000, l:4}];
+const rankOf = pts => RANKS.reduce((r, x) => pts >= x.min ? x : r, RANKS[0]);
+function rankHTML(total){
+  const r = rankOf(total), next = RANKS[RANKS.indexOf(r)+1];
+  const pct = next ? Math.round((total - r.min) / (next.min - r.min) * 100) : 100;
+  return `<div class="panel rank" style="${lc(r.l)};margin-top:12px"><div class="between">
+      <div><div class="muted small">Your rank</div><span class="lvtag rankname">${r.name}</span></div>
+      <div style="text-align:right"><span class="big">${num(total)}</span><div class="muted small">points in total</div></div></div>
+    <div class="bar"><i style="width:${pct}%;background:var(--lc)"></i></div>
+    <div class="muted small">${next ? `${num(next.min - total)} points to ${next.name}` : 'Top rank reached. Legend!'}</div></div>`;
+}
+// Times (ms) when a personal best was beaten, oldest first
+function pbTimes(hist){
+  const best = {}, out = [];
+  [...hist].sort((a,b)=>a.created_at.localeCompare(b.created_at)).forEach(s=>s.exercises.forEach(e=>{
+    const v = Math.max(...e.results.map(Number)); if(best[e.name] != null && v > best[e.name]) out.push(new Date(s.created_at).getTime());
+    best[e.name] = Math.max(best[e.name] ?? 0, v);
+  }));
+  return out;
+}
+function maxStreak(hist, goal){
+  const counts = new Map(); hist.forEach(s=>{ const k = weekStart(s.created_at); counts.set(k, (counts.get(k)||0)+1); });
+  let best = 0, cur = 0, prev = null;
+  [...counts.keys()].sort((a,b)=>a-b).forEach(w=>{
+    const ok = counts.get(w) >= goal, next = prev !== null && Math.round((w - prev) / 6048e5) === 1;
+    cur = ok ? (next && cur ? cur + 1 : 1) : 0; best = Math.max(best, cur); prev = w;
+  });
+  return best;
+}
+const BADGES = [
+  {id:'first', icon:'1', name:'First workout', how:'Finish your first workout.', test:c=>c.n>=1},
+  {id:'five', icon:'5', name:'Five workouts', how:'Finish 5 workouts.', test:c=>c.n>=5},
+  {id:'twenty', icon:'20', name:'Twenty workouts', how:'Finish 20 workouts.', test:c=>c.n>=20},
+  {id:'streak3', icon:'3W', name:'3-week streak', how:'Reach your weekly goal 3 weeks in a row.', test:c=>c.streak>=3},
+  {id:'levelup', icon:'↑', name:'Level up', how:'Do a movement at a higher level than before.', test:c=>c.levelUp},
+  {id:'top', icon:'L4', name:'Top level', how:'Do any exercise at Level 4.', test:c=>c.top},
+  {id:'allround', icon:'5/5', name:'All-rounder', how:'Train Legs, Upper body, Core, Cardio and Balance in one week.', test:c=>c.allRound},
+  {id:'challenge', icon:'★', name:'Challenge done', how:'Finish a challenge workout from your teacher.', test:c=>c.challenge},
+  {id:'early', icon:'⏱', name:'Early bird', how:'Finish a challenge workout before its due date.', test:c=>c.early},
+  {id:'pb5', icon:'PB', name:'Record breaker', how:'Beat 5 personal bests.', test:c=>c.pbs>=5},
+  {id:'k1', icon:'1K', name:'1,000 points', how:'Reach 1,000 points in total.', test:c=>c.total>=1000},
+  {id:'k5', icon:'5K', name:'5,000 points', how:'Reach 5,000 points in total.', test:c=>c.total>=5000}
+];
+// Badges earned now, plus any earned before (kept on this device), and what counts for celebrations
+function badgeState(){
+  const H = S.hist || [], plan = S.extras?.plan, goal = S.cls?.weekly_goal || 3;
+  const weeks = new Map(); H.forEach(s=>{ const k = weekStart(s.created_at); if(!weeks.has(k)) weeks.set(k, new Set()); s.exercises.forEach(e=>{ const f = FAM[famIdOf(e)]; if(f) weeks.get(k).add(f.region); }); });
+  const c = {n:H.length, total:sum(H.map(pointsOf)), streak:maxStreak(H, goal), pbs:pbTimes(H).length,
+    levelUp:Object.values(S.A?.fams || {}).some(f=>Object.keys(f.hist).length > 1),
+    top:H.some(s=>s.exercises.some(e=>e.level===4)), allRound:[...weeks.values()].some(r=>r.size >= REGIONS.length),
+    challenge:H.some(s=>s.plan_id), early:!!plan?.due_on && H.some(s=>s.plan_id===plan.id && ymd(s.created_at) <= plan.due_on)};
+  const key = 'bwb-badges-' + S.student.id, earned = new Set([...ls.get(key, []), ...BADGES.filter(b=>b.test(c)).map(b=>b.id)]);
+  ls.set(key, [...earned]);
+  return {earned, total:c.total, rank:rankOf(c.total).name, ready:Object.values(S.A?.fams || {}).filter(f=>f.status==='ready').map(f=>f.fid)};
+}
+function badgesHTML(earned){
+  return `<h2>Badges <span class="muted" style="font-size:1rem">${earned.size} of ${BADGES.length}</span></h2>
+    <div class="badges">${BADGES.map(b=>`<div class="badge${earned.has(b.id) ? '' : ' off'}"><i aria-hidden="true">${b.icon}</i><div><b>${b.name}</b><span>${earned.has(b.id) ? 'Earned' : b.how}</span></div></div>`).join('')}</div>`;
+}
+// After saving: what is new since before the workout
+function celebrationHTML(now){
+  const b = S.before; S.before = null; if(!b) return '';
+  const items = [
+    ...[...now.earned].filter(id=>!b.earned.has(id)).map(id=>`New badge: <b>${BADGES.find(x=>x.id===id).name}</b>`),
+    ...now.ready.filter(f=>!b.ready.includes(f)).map(f=>`Ready for <b>Level ${S.A.fams[f].level + 1}</b> in ${esc(FAM[f].name)}`),
+    ...(now.rank !== b.rank ? [`New rank: <b>${now.rank}</b>`] : []),
+    ...(b.pbs ? [`<b>${b.pbs}</b> new personal best${b.pbs===1 ? '' : 's'}`] : [])
+  ];
+  return items.length ? `<div class="panel celebrate"><div class="h3">Well done!</div><ul style="margin:4px 0 0;padding-left:20px">${items.map(i=>`<li>${i}</li>`).join('')}</ul></div>` : '';
+}
+function confetti(){
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c = document.createElement('canvas'); c.className = 'confetti'; document.body.appendChild(c);
+  const W = c.width = innerWidth, H = c.height = innerHeight, x = c.getContext('2d'), cols = ['#4FB283','#2B8FC6','#EE9B2D','#DD4B26'];
+  const ps = Array.from({length:140}, ()=>({x:Math.random()*W, y:-20 - Math.random()*H*.5, vx:(Math.random()-.5)*3, vy:2 + Math.random()*3, r:Math.random()*6.3, vr:(Math.random()-.5)*.3, s:5 + Math.random()*6, c:cols[Math.random()*4|0]}));
+  const t0 = performance.now();
+  (function frame(t){
+    x.clearRect(0, 0, W, H);
+    ps.forEach(p=>{ p.x += p.vx; p.y += p.vy; p.vy += .05; p.r += p.vr; x.save(); x.translate(p.x, p.y); x.rotate(p.r); x.fillStyle = p.c; x.fillRect(-p.s/2, -p.s/4, p.s, p.s/2); x.restore(); });
+    if(t - t0 < 2600) requestAnimationFrame(frame); else c.remove();
+  })(t0);
+}
+// Last week's numbers, shown until the student taps "Got it"
+function recapHTML(hist, goal){
+  const thisW = weekStart(Date.now()), d = new Date(thisW); d.setDate(d.getDate() - 7); const lastW = d.getTime();
+  if(ls.get('bwb-recap-' + S.student.id, null) === thisW) return '';
+  const inLast = t => t >= lastW && t < thisW, lw = hist.filter(s=>inLast(new Date(s.created_at).getTime()));
+  if(!lw.length) return '';
+  const pbs = pbTimes(hist).filter(inLast).length, met = lw.length >= goal;
+  return `<div class="panel feature" id="recap"><div class="muted small">Last week</div><div class="h3">Your week in numbers</div>
+    <div class="tiles" style="margin-top:6px"><div class="tile"><b>${lw.length}</b><span>workout${lw.length===1 ? '' : 's'}${met ? ', goal reached' : ` of ${goal}`}</span></div>
+      <div class="tile"><b>${num(sum(lw.map(pointsOf)))}</b><span>points</span></div><div class="tile"><b>${pbs}</b><span>personal best${pbs===1 ? '' : 's'}</span></div></div>
+    <p class="small" style="margin:10px 0 0">${met ? 'Goal reached. Keep the streak going this week!' : `New week, new chance: ${goal} workouts reach your goal.`} <button class="link small" id="recapOk">Got it</button></p></div>`;
+}
+// Form cup: forms of the same year group, ranked by points per student this week
+function cupHTML(B){
+  const cup = (B?.cup || []).filter(k=>k.size > 0); if(cup.length < 2) return '';
+  const per = (k, f) => k[f] / k.size, rows = [...cup].sort((a,b)=>per(b,'week') - per(a,'week'));
+  const won = [...cup].sort((a,b)=>per(b,'last') - per(a,'last'))[0];
+  return `<h2>Form cup</h2><p class="muted small">Points per student this week, so small and big forms are equal.${won.last > 0 ? ` Last week's winner: <b>${esc(won.name)}</b>.` : ''}</p>
+    <div class="panel"><ol class="board">${rows.map((k,i)=>`<li class="${k.id===S.cls.id ? 'me' : ''}"><span class="rk">${i+1}</span><span class="nm">${esc(k.name)}${k.id===S.cls.id ? ' (your form)' : ''}${i===0 && k.week > 0 ? ' <em class="tag">Leading</em>' : ''}</span><b>${num(Math.round(per(k,'week')))}</b></li>`).join('')}</ol></div>`;
+}
+function starHTML(st){
+  if(!st) return '';
+  const me = st.student_id === S.student?.id;
+  return `<div class="panel starcard" style="margin-bottom:12px"><div class="muted small">Star of the week in ${esc(S.cls.name)}</div>
+    <div class="h3">★ ${esc(st.name)}${me ? " (that's you!)" : ''}</div>${st.message ? `<p style="margin:0">“${esc(st.message)}”</p>` : ''}</div>`;
+}
+// A balanced workout at the student's own levels: 2 legs, 2 upper body, 2 core, 1 cardio, 1 balance
+function surpriseWorkout(quick){
+  const shuffle = a => a.map(v=>[Math.random(), v]).sort((x,y)=>x[0]-y[0]).map(x=>x[1]);
+  const pick = Object.entries({'Legs':2, 'Upper body':2, 'Core':2, 'Cardio':1, 'Balance':1}).flatMap(([r,n])=>shuffle(FAMILIES.filter(f=>f.region===r)).slice(0, n));
+  S.sel = shuffle(pick).map(f=>{ const me = S.A?.fams[f.id]; return {fam:f.id, lvl: me ? (me.status==='ready' ? Math.min(4, me.level + 1) : me.level) : 1}; });
+  S.settings = quick ? {work:40, rest:15, rounds:1} : {work:40, rest:20, rounds:2};
+  S.planId = null;
+  showBuilder();
+  toast(quick ? 'Quick workout ready: about 8 minutes. Change anything or press Start.' : 'Surprise workout ready at your levels. Change anything or press Start.');
+}
+// Voice coach: speaks the exercise names and "switch sides" (can be turned off in the timer)
+const voiceOn = () => ls.get('bwb-voice', true) !== false;
+function say(t){
+  try{ if(!voiceOn() || !('speechSynthesis' in window)) return; speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t); u.lang = 'en-GB'; u.rate = 1.05; speechSynthesis.speak(u); }catch(e){}
+}
+// Teacher: scores that look too high to be true, worth a check
+function flagsOf(s){
+  const out = [];
+  (s.exercises || []).forEach(e=>(e.results || []).forEach(v=>{ v = +v || 0;
+    if(e.unit==='reps' && v > s.work_sec * 1.5) out.push(`${e.name}: ${v} reps in ${s.work_sec}s`);
+    if(e.unit==='sec' && v > s.work_sec + 5) out.push(`${e.name}: held ${v}s in a ${s.work_sec}s exercise`); }));
+  return out;
+}
+const flagTag = list => list.length ? ` <button type="button" class="tag flag" data-flag="${esc(list.join('. '))}" title="${esc(list.join('. '))}">Check</button>` : '';
+document.addEventListener('click', e => { const f = e.target.closest('[data-flag]'); if(f) toast('Worth checking: ' + f.dataset.flag); });
+
+
 // Class leaderboard: the challenge workout (best score each) and this week (all workouts since Monday)
 function boardHTML(B, hasPlan){
   if(!B) return '';
@@ -877,10 +1047,12 @@ function boardHTML(B, hasPlan){
     ? `<ol class="board">${rows.map((r,i)=>`<li class="${r.id===me?'me':''}"><span class="rk">${i+1}</span><span class="nm">${esc(r.name)}${r.id===me?' (you)':''}</span><b>${num(r.points)}</b></li>`).join('')}</ol>`
     : `<p class="muted small" style="margin:0">Nobody yet. Be the first!</p>`;
   return `<h2>Class leaderboard</h2>
-    <p class="muted small">Every rep is 1 point and every second held is 1 point.</p>
-    <div class="${hasPlan ? 'row2' : ''}">
+    <p class="muted small">${POINTS_TEXT}</p>
+    <div class="boards">
       ${hasPlan ? `<div class="panel"><div class="h3">Challenge workout</div><p class="muted small" style="margin:0 0 8px">${B.plan.length} of ${B.class_size} done. Your best try counts.</p>${list(B.plan)}</div>` : ''}
       <div class="panel"><div class="h3">This week</div><p class="muted small" style="margin:0 0 8px">All workouts since Monday.</p>${list(B.week)}</div>
+      ${B.week.length && B.week[0].last !== undefined ? `<div class="panel"><div class="h3">Most improved</div><p class="muted small" style="margin:0 0 8px">Points this week compared with last week.</p>
+        <ol class="board">${[...B.week].map(r=>({...r, gain:r.points-(r.last||0)})).sort((a,b)=>b.gain-a.gain || a.name.localeCompare(b.name)).map((r,i)=>`<li class="${r.id===me?'me':''}"><span class="rk">${i+1}</span><span class="nm">${esc(r.name)}${r.id===me?' (you)':''}</span><b>${r.gain>=0?'+':''}${num(r.gain)}</b></li>`).join('')}</ol></div>` : ''}
     </div>`;
 }
 // The programme to follow: exercises in the teacher's order. Levels are fixed unless the teacher let students choose.
@@ -929,10 +1101,14 @@ async function showStudentHome(){
       Store.classBoard(S.token).then(b=>{ S.board = b; }, e=>{ if(isExpired(e)) throw e; S.board = null; })]);
   }catch(e){ return fail('Could not load your workouts', e); }
   const X = S.extras, ready = readyCount(S.A), last = S.hist[0];
+  const BS = badgeState(), celebrate = celebrationHTML(BS);
   const testDone = !!X.test_label && X.tests.some(t=>t.label===X.test_label);
   const planDone = !!X.plan && S.hist.some(s=>s.plan_id===X.plan.id);
   $('#home').className = '';
   $('#home').innerHTML = `
+    ${celebrate}
+    ${recapHTML(S.hist, S.cls.weekly_goal||3)}
+    ${starHTML(X.star)}
     ${X.test_label && !testDone ? `<div class="panel feature"><div class="muted small">Fitness check</div>
       <div class="h3">${esc(X.test_label)}</div>
       <p style="margin:0 0 10px">Five short tests, about 10 minutes. Your teacher compares your results across the year.</p>
@@ -940,18 +1116,27 @@ async function showStudentHome(){
     ${X.plan ? planCardHTML(X.plan, planDone, Object.keys(S.A.fams).length>0) : ''}
     <div class="btns">
       <button class="btn${X.plan?' ghost':''}" id="build">Build my own workout</button>
+      <button class="btn ghost" id="surp">Surprise me</button>
+      <button class="btn ghost" id="quick">Quick 8-minute workout</button>
       <button class="btn ghost" id="lib">All exercises</button>
       <button class="btn ghost" id="tut">How it works</button>
       ${last ? `<button class="btn ghost" id="repeat">Repeat last workout</button>` : ''}
       ${last && ready ? `<button class="btn ghost" id="levelup">Repeat with ${ready} level-up${ready===1?'':'s'}</button>` : ''}
     </div>
     ${offline ? `<p class="muted small">Showing the workouts saved on this device. Connect to the internet to see the latest.</p>` : ''}
+    ${rankHTML(BS.total)}
     ${boardHTML(S.board, !!X.plan)}
+    ${cupHTML(S.board)}
     ${X.challenges.length ? `<h2>Class challenges</h2><div class="clist">${X.challenges.map(ch=>challengeHTML(ch)).join('')}</div>` : ''}
     <div id="hist" style="margin-top:18px">${progressHTML(S.hist, S.cls.weekly_goal||3, S.A)}</div>
+    ${badgesHTML(BS.earned)}
     ${X.tests.length ? `<h2>My fitness checks</h2>${testTableHTML(X.tests)}
       ${testDone ? `<p><button class="btn ghost small" id="fit">Redo the fitness check</button></p>` : ''}` : ''}`;
   wireCharts();
+  if(celebrate) confetti();
+  if($('#recapOk')) $('#recapOk').onclick = () => { ls.set('bwb-recap-'+S.student.id, weekStart(Date.now())); $('#recap').remove(); };
+  $('#surp').onclick = () => surpriseWorkout(false);
+  $('#quick').onclick = () => surpriseWorkout(true);
   $('#build').onclick = () => { S.sel = []; S.planId = null; showBuilder(); };
   if($('#fit')) $('#fit').onclick = showFitnessCheck;
   $('#lib').onclick = showLibrary;
@@ -1095,6 +1280,8 @@ function startPhase(i){
   }
   P.end = Date.now()+ph.dur*1000; P.shown=null; P.paused=false; P.halfDone=false;
   renderPhase();
+  const e = P.ex[ph.ex], nw = P.phases.slice(i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
+  say(ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ne ? `Rest. Next: ${ne.name}` : 'Rest');
 }
 function renderPhase(){
   const ph=P.phases[P.i], e=P.ex[ph.ex], el=$('#player'), N=P.ex.length, R=S.settings.rounds;
@@ -1114,10 +1301,11 @@ function renderPhase(){
       <button type="button" class="link" id="howp">How to do it</button>`;
   }
   el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
-    <div class="p-top"><span>Round ${ph.round+1} of ${R}</span><span>Exercise ${ph.ex+1} of ${N}</span></div>
+    <div class="p-top"><span>Round ${ph.round+1} of ${R}</span><button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button><span>Exercise ${ph.ex+1} of ${N}</span></div>
     <div class="p-main">${main}</div>
     <div class="p-ctrl"><button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>${ph.type==='work' ? '' : `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : 'Start now'}</button>`}<button class="pbtn" id="quit">Quit</button></div>`;
   $('#pp').onclick = togglePause;
+  $('#vc').onclick = () => { ls.set('bwb-voice', !voiceOn()); if(!voiceOn()) try{ speechSynthesis.cancel(); }catch(e){} $('#vc').textContent = voiceOn() ? 'Voice on' : 'Voice off'; };
   if($('#howp')) $('#howp').onclick = () => { const x = ph.type==='rest' ? ne : e; if(!P.paused) togglePause(); showHow(x.fid, x.level); };
   if($('#skip')) $('#skip').onclick = () => startPhase(P.i+1);   // only in rest and get-ready: exercises cannot be skipped
   $('#quit').onclick = () => { if(confirm('Quit this workout? Nothing will be saved.')){ cleanupPlayer(); P.planId ? showStudentHome() : showBuilder(); } };
@@ -1133,7 +1321,7 @@ function tick(){
   if(s!==P.shown){ P.shown=s; const t=$('#pt'); if(t) t.textContent=s; if(s>0 && s<=3) beep(660,.1); }
   if(ph.type==='work' && P.ex[ph.ex].half && !P.halfDone && s<=Math.floor(ph.dur/2) && s>3){
     P.halfDone=true; beep(880,.12); beep(880,.12,.2);
-    const t=$('#pph'); if(t) t.textContent='Switch sides';
+    const t=$('#pph'); if(t) t.textContent='Switch sides'; say('Switch sides');
   }
   if(ms<=0){ beep(1046,.35); startPhase(P.i+1); }
 }
@@ -1149,6 +1337,7 @@ function cleanupPlayer(){
 }
 function finishWorkout(){
   P.duration = Math.round((Date.now()-P.started)/1000);
+  say('Workout complete. Well done!');
   P.doneAt = new Date().toISOString();
   cleanupPlayer(); showSummary();
 }
@@ -1164,7 +1353,7 @@ function showSummary(){
   };
   setView(`<h1>Workout done</h1>
     <p class="muted">Check your scores, rate how hard it felt, then save. The last exercise has no rest after it, so type its score here.</p>
-    <div class="panel feature"><div class="muted small">Your points (1 rep = 1 point, 1 second held = 1 point)</div><div class="big-time" style="text-align:left;font-size:3rem;margin:4px 0 0" id="pts">0</div></div>
+    <div class="panel feature"><div class="muted small">Your points. ${POINTS_TEXT}</div><div class="big-time" style="text-align:left;font-size:3rem;margin:4px 0 0" id="pts">0</div></div>
     <div class="tbl-wrap panel"><table>
       <thead><tr><th>Exercise</th><th>Level</th>${Array.from({length:rounds},(_,r)=>`<th>Round ${r+1}</th>`).join('')}<th>Personal best</th></tr></thead>
       <tbody>${P.ex.map((e,i)=>`<tr><td>${esc(e.name)}<div class="muted small">${e.unit==='sec'?'seconds':'reps'}</div></td>
@@ -1175,7 +1364,7 @@ function showSummary(){
     <h2>How hard was it?</h2><p class="muted">1 is very easy, 10 is maximum effort.</p>
     <div class="rpe">${Array.from({length:10},(_,k)=>`<button type="button" data-rpe="${k+1}" aria-pressed="false">${k+1}</button>`).join('')}</div>
     <p style="margin-top:26px"><button class="btn" id="save">Save workout</button> <button class="btn ghost" id="discard">Discard</button></p>`);
-  const showPts = () => { $('#pts').textContent = num(sum(P.ex.flatMap(e=>e.results))); };
+  const showPts = () => { $('#pts').textContent = num(calcPoints(P.ex)); };
   showPts();
   $$('input.num').forEach(inp=>inp.oninput=()=>{
     const i=+inp.dataset.i; P.ex[i].results[+inp.dataset.r] = inp.value==='' ? '' : Math.max(0,parseInt(inp.value,10)||0);
@@ -1189,8 +1378,9 @@ function showSummary(){
     const exercises = P.ex.map(e=>({fid:e.fid, family:e.family, name:e.name, level:e.level, unit:e.unit, results:e.results.map(Number)}));
     const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, done_at:P.doneAt, ...(P.planId ? {plan_id:P.planId} : {}) };
     const pbs = exercises.filter(e=>prevPB[e.name]!=null && Math.max(...e.results)>prevPB[e.name]).length;
-    const msg = `Workout saved: ${num(sum(exercises.flatMap(e=>e.results)))} points${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
+    const msg = `Workout saved: ${num(calcPoints(exercises))} points${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
     $('#save').disabled = true;
+    S.before = {...badgeState(), pbs};
     try{ await Store.addSession(S.token, sess); toast(msg); showStudentHome(); }
     catch(e){
       if(isNetErr(e)){ pending.add(sess); toast('No connection. The workout is saved on this device and uploads when you are back online.'); return showStudentHome(); }
@@ -1231,8 +1421,8 @@ const TUTORIAL = [
   ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start.', 'programme'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but you cannot skip an exercise.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. If you are ready early, tap "Skip rest".', 'rest'],
-  ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, then save. Every rep is 1 point and every second held is 1 point.', 'summary'],
-  ['See your points and progress', 'Compare your points with your class on the leaderboard, keep your weekly streak going and watch your levels go up.', 'board']
+  ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, then save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
+  ['See your points and progress', 'Compare with your class on the leaderboards, help your form win the form cup, collect badges, climb from Rookie to Legend and keep your weekly streak going.', 'board']
 ];
 function showTutorial(){
   const back = S.student ? showStudentHome : S.teacher ? showTeacherHome : showHome;
@@ -1502,6 +1692,7 @@ async function showClass(c){
     <h1>${esc(c.name)}</h1>${c.year_group ? `<p class="muted" style="margin-top:-.3em">${esc(c.year_group)}</p>` : ''}
     <p><button class="btn" id="dl">Download ${esc(c.name)} (.xlsx)</button></p>
     <h2>Challenge workout</h2><div id="plan" class="muted">Loading…</div>
+    <h2>Star of the week</h2><div id="starp" class="muted">Loading…</div>
     <h2>Fitness check</h2><div id="fitp" class="muted">Loading…</div>
     <h2>Students</h2>
     <div class="panel"><label class="field"><span>Add students, one name per line</span><textarea id="names" rows="5" placeholder="Paste names from your class list"></textarea></label>
@@ -1556,6 +1747,17 @@ async function showClass(c){
     };
     if($('#clearPlan')) $('#clearPlan').onclick = async () => { if(!confirm('Remove the workout of the week?')) return; try{ await Store.tClearPlan(S.teacher, c.id); load(); }catch(e){ fail('Could not remove', e); } };
 
+    // Star of the week
+    const ST = X.star;
+    $('#starp').className = '';
+    $('#starp').innerHTML = `<div class="panel">${ST ? `<p style="margin:0 0 10px">Now: <b>★ ${esc(ST.name)}</b>${ST.message ? ` · “${esc(ST.message)}”` : ''} <span class="muted small">(since ${fmtDate(ST.at)})</span></p>` : '<p class="muted small" style="margin:0 0 10px">Pick a student to celebrate. The whole class sees it at the top of their page.</p>'}
+      <div class="row2"><label class="field"><span>Student</span><select id="starS"><option value="">Choose a student</option>${st.map(s=>`<option value="${s.id}" ${ST?.student_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>
+        <label class="field"><span>Message (optional)</span><input id="starM" maxlength="200" value="${esc(ST?.message || '')}" placeholder="e.g. Brilliant effort on the plank challenge!"></label></div>
+      <div class="btns"><button class="btn small" id="starSave">Save</button>${ST ? '<button class="btn ghost small" id="starClear">Remove</button>' : ''}</div></div>`;
+    $('#starSave').onclick = async () => { const sid = $('#starS').value; if(!sid) return toast('Choose a student.');
+      try{ await Store.tSetStar(S.teacher, c.id, sid, $('#starM').value); toast('Star of the week saved'); load(); }catch(e){ fail('Could not save', e); } };
+    if($('#starClear')) $('#starClear').onclick = async () => { try{ await Store.tSetStar(S.teacher, c.id, null, ''); load(); }catch(e){ fail('Could not remove', e); } };
+
     // Fitness check
     const open = X.test_label, doneNow = open ? new Set(X.tests.filter(t=>t.label===open).map(t=>t.student_id)).size : 0;
     $('#fitp').className = '';
@@ -1581,7 +1783,7 @@ async function showClass(c){
         <td class="actions">${moveSel(s)}${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
       : '<p>No students yet. Paste your class list above.</p>');
     $('#sess').innerHTML = ss.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Points</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th><th>Minutes</th></tr></thead><tbody>
-      ${ss.map(s=>`<tr><td>${fmtDate(s.created_at)}</td><td>${fmtTime(s.created_at)}</td><td>${esc(s.student_name)}${s.plan_id?' <em class="tag">Challenge</em>':''}</td><td><b>${num(pointsOf(s))}</b></td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${Math.round(s.duration_sec/60)}</td></tr>`).join('')}</tbody></table>`
+      ${ss.map(s=>`<tr><td>${fmtDate(s.created_at)}</td><td>${fmtTime(s.created_at)}</td><td>${esc(s.student_name)}${s.plan_id?' <em class="tag">Challenge</em>':''}</td><td><b>${num(pointsOf(s))}</b>${flagTag(flagsOf(s))}</td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${Math.round(s.duration_sec/60)}</td></tr>`).join('')}</tbody></table>`
       : '<p>No workouts logged yet.</p>';
     $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id), X.tests.filter(t=>t.student_id===s.id)); });
     $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
@@ -1606,9 +1808,9 @@ function planResultsHTML(st, ss, P){
   if(!st.length) return '';
   const rows = planResults(st, ss, P);
   return `<details class="panel" open style="margin-top:12px"><summary>Results by student</summary>
-    <p class="muted small">Best try per student. Points: 1 rep = 1 point, 1 second held = 1 point. Each exercise shows the level done and the score per round.</p>
+    <p class="muted small">Best try per student. ${POINTS_TEXT} Each exercise shows the level done and the score per round.</p>
     <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Student</th><th>Done</th><th>Points</th><th>Effort</th>${P.exercises.map((x,k)=>`<th>${k+1}. ${esc(FAM[x.fid]?.name || '')}</th>`).join('')}</tr></thead><tbody>
-    ${rows.map(({s, x}, i)=>`<tr${x ? '' : ' class="muted"'}><td>${x ? i+1 : ''}</td><td>${esc(s.name)}</td><td>${x ? fmtDate(x.created_at) : '<b>Not done</b>'}</td><td>${x ? `<b>${num(pointsOf(x))}</b>` : ''}</td><td>${x ? x.rpe+'/10' : ''}</td>
+    ${rows.map(({s, x}, i)=>`<tr${x ? '' : ' class="muted"'}><td>${x ? i+1 : ''}</td><td>${esc(s.name)}</td><td>${x ? fmtDate(x.created_at) : '<b>Not done</b>'}</td><td>${x ? `<b>${num(pointsOf(x))}</b>${flagTag(flagsOf(x))}` : ''}</td><td>${x ? x.rpe+'/10' : ''}</td>
       ${P.exercises.map((_,k)=>{ const e = x?.exercises?.[k]; return `<td>${e ? `<span class="lvtag" style="${lc(e.level)}">L${e.level}</span> ${e.results.join(' / ')}${e.unit==='sec'?' s':''}` : ''}</td>`; }).join('')}</tr>`).join('')}
     </tbody></table></div></details>`;
 }
@@ -1877,7 +2079,7 @@ let BD = null;
 async function showBoard(){
   setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
     <h1>Results board</h1>
-    <p class="muted">Every student's workouts and points. Points: 1 rep = 1 point, 1 second held = 1 point.</p>
+    <p class="muted">Every student's workouts and points. ${POINTS_TEXT}</p>
     <div class="panel">
       <div class="row2"><label class="field"><span>Year group</span><select id="bY"></select></label>
         <label class="field"><span>Class</span><select id="bC"></select></label></div>
@@ -1944,9 +2146,9 @@ function renderBoard(){
     ${byClass.length > 1 && !f.none ? `<h2>By class</h2><div class="tbl-wrap panel"><table><thead><tr><th>Class</th><th>Students</th><th>${plan?'Did the challenge':'Active'}</th><th>Points ${label}</th><th>Points per student</th></tr></thead><tbody>
       ${byClass.sort((a,b)=>b.points/b.size - a.points/a.size).map(x=>`<tr><td><button class="link" data-bcls="${x.c.id}">${esc(x.c.name)}</button></td><td>${x.size}</td><td>${x.active} (${Math.round(x.active/x.size*100)}%)</td><td>${num(x.points)}</td><td><b>${num(Math.round(x.points/x.size))}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
     <div class="between"><h2>Students</h2><button class="btn ghost small" id="bDl">Download this view (.xlsx)</button></div>
-    <div class="tbl-wrap panel"><table><thead><tr><th>#</th><th>Student</th><th>Class</th><th>Points ${label}</th><th>${plan ? 'Challenge' : 'Workouts'}</th><th>Average level</th><th>Challenge workout</th><th>Last workout</th></tr></thead><tbody>
+    <div class="tbl-wrap panel"><table><thead><tr><th>#</th><th>Student</th><th>Class</th><th>Points ${label}</th><th>${plan ? 'Challenge' : 'Workouts'}</th><th>Rank</th><th>Average level</th><th>Challenge workout</th><th>Last workout</th></tr></thead><tbody>
     ${rows.map((r,i)=>`<tr${r.n ? '' : ' class="muted"'}><td>${r.n ? i+1 : ''}</td><td><button class="link" data-bst="${r.s.id}">${esc(r.s.name)}</button></td><td>${esc(r.c.name)}</td>
-      <td><b>${r.n ? num(r.points) : '0'}</b></td><td>${plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n}</td><td>${r.lvl}</td>
+      <td><b>${r.n ? num(r.points) : '0'}</b>${flagTag(r.list.flatMap(flagsOf))}</td><td>${plan ? (r.n ? fmtDate(r.best.created_at) : 'Not done') : r.n}</td><td>${(k=>`<span class="lvtag" style="${lc(k.l)}">${k.name}</span>`)(rankOf(sum(r.mine.map(pointsOf))))}</td><td>${r.lvl}</td>
       <td>${!r.D.plan ? '<span class="muted">none set</span>' : r.best ? `Done, ${num(pointsOf(r.best))} pts` : '<b>Not done</b>'}</td>
       <td>${r.last ? fmtDate(r.last) : '<span class="muted">never</span>'}</td></tr>`).join('')}</tbody></table></div>`;
   $$('[data-bcls]').forEach(b=>b.onclick=()=>{ BD.f.cls = b.dataset.bcls; $('#bC').value = BD.f.cls; renderBoard(); });

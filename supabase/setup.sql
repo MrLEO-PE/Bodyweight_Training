@@ -63,6 +63,11 @@ end $$;
 
 create unique index if not exists bw_students_class_name on public.bw_students (class_id, lower(name));
 
+-- Star of the week, chosen by the teacher for each class
+alter table public.bw_classes add column if not exists star_student uuid references public.bw_students(id) on delete set null;
+alter table public.bw_classes add column if not exists star_message text;
+alter table public.bw_classes add column if not exists star_at timestamptz;
+
 create table if not exists public.bw_sessions (
   id uuid primary key default gen_random_uuid(),
   class_id uuid references public.bw_classes(id) on delete cascade,
@@ -79,6 +84,8 @@ create table if not exists public.bw_sessions (
   rpe int not null,
   created_at timestamptz not null default now()
 );
+-- Points of the workout: each rep 1 point, each second held half a point, times the level (x1, x1.5, x2, x2.5)
+alter table public.bw_sessions add column if not exists points int not null default 0;
 create index if not exists bw_sessions_class on public.bw_sessions (class_id, created_at desc);
 create index if not exists bw_sessions_student on public.bw_sessions (student_id, created_at desc);
 
@@ -152,6 +159,15 @@ do $$ declare t text; p record; begin
 end $$;
 
 /* ---------- Internal helpers (not callable from the browser) ---------- */
+
+create or replace function public.bw__points(ex jsonb) returns int
+language sql immutable as $$
+  select coalesce(round(sum(least(greatest(v::numeric, 0), 500)
+           * case when e ->> 'unit' = 'sec' then 0.5 else 1 end
+           * (1 + 0.5 * (least(greatest(coalesce((e ->> 'level')::int, 1), 1), 4) - 1)))), 0)::int
+    from jsonb_array_elements(coalesce(ex, '[]'::jsonb)) e, jsonb_array_elements_text(e -> 'results') v
+$$;
+update public.bw_sessions set points = public.bw__points(exercises) where points = 0;
 
 create or replace function public.bw__hash(t text) returns text
 language sql immutable set search_path = public, extensions as $$
@@ -297,7 +313,7 @@ begin
     end;
   end if;
   insert into bw_sessions (class_id, class_name, student_id, student_name, work_sec, rest_sec, rounds,
-                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id)
+                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id, points)
   values (c.id, c.name, s.id, s.name,
           (p_s ->> 'work_sec')::int, (p_s ->> 'rest_sec')::int, (p_s ->> 'rounds')::int, ex,
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
@@ -305,7 +321,7 @@ begin
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
                     jsonb_array_elements_text(e -> 'results') v where e ->> 'unit' = 'sec'), 0),
           least(greatest(coalesce((p_s ->> 'duration_sec')::int, 0), 0), 7200),
-          (p_s ->> 'rpe')::int, done_at, plan)
+          (p_s ->> 'rpe')::int, done_at, plan, bw__points(ex))
   returning * into r;
   return r;
 end $$;
@@ -525,6 +541,27 @@ language sql stable security definer set search_path = public as $$
     'progress', coalesce((select sum(per.n) from per), 0))
 $$;
 
+create or replace function public.bw__star(p_class_id uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when k.star_student is null then null
+              else jsonb_build_object('student_id', s.id, 'name', s.name, 'message', k.star_message, 'at', k.star_at) end
+    from bw_classes k left join bw_students s on s.id = k.star_student where k.id = p_class_id
+$$;
+
+create or replace function public.bw_t_set_star(p_token text, p_class_id uuid, p_student_id uuid, p_message text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  if p_student_id is not null and not exists (select 1 from bw_students s where s.id = p_student_id and s.class_id = p_class_id) then
+    raise exception 'Choose a student from this class.';
+  end if;
+  update bw_classes
+     set star_student = p_student_id,
+         star_message = case when p_student_id is null then null else nullif(left(trim(coalesce(p_message, '')), 200), '') end,
+         star_at = case when p_student_id is null then null else now() end
+   where id = p_class_id;
+end $$;
+
 create or replace function public.bw_student_extras(p_token text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
@@ -533,6 +570,7 @@ begin
   select k.* into c from bw_classes k join bw_students s on s.class_id = k.id where s.id = sid;
   return jsonb_build_object(
     'plan', bw__plan(c.id),
+    'star', bw__star(c.id),
     'test_label', c.test_label,
     'tests', coalesce((select jsonb_agg(to_jsonb(t) - 'student_id' - 'class_id' order by t.created_at)
                          from bw_tests t where t.student_id = sid), '[]'::jsonb),
@@ -542,28 +580,39 @@ begin
                                and ch.ends_on >= current_date - 14), '[]'::jsonb));
 end $$;
 
--- Class leaderboard for a student. Points: 1 rep = 1 point, 1 second held = 1 point.
+-- Class leaderboard for a student, using the points of each workout.
 -- 'plan': best score per student on the class's current challenge workout.
--- 'week': all points since Monday.
+-- 'week': points since Monday, with last week's points (for "most improved").
+-- 'cup': every class in the same year group, with points this week and last week.
 create or replace function public.bw_class_board(p_token text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare sid uuid := bw__student(p_token); cid uuid; pl uuid; wk timestamptz := date_trunc('week', now());
+declare sid uuid := bw__student(p_token); c bw_classes; pl uuid;
+        wk timestamptz := date_trunc('week', now()); lw timestamptz := date_trunc('week', now()) - interval '7 days';
 begin
-  select s.class_id into cid from bw_students s where s.id = sid;
-  select p.id into pl from bw_plans p where p.class_id = cid and p.active order by p.created_at desc limit 1;
+  select k.* into c from bw_classes k join bw_students s on s.class_id = k.id where s.id = sid;
+  select p.id into pl from bw_plans p where p.class_id = c.id and p.active order by p.created_at desc limit 1;
   return jsonb_build_object(
-    'class_size', (select count(*) from bw_students s where s.class_id = cid),
+    'class_size', (select count(*) from bw_students s where s.class_id = c.id),
     'plan', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'points', x.pts) order by x.pts desc, s.name)
                         from bw_students s
-                        join (select student_id, max(total_reps + total_hold_sec) as pts from bw_sessions
+                        join (select student_id, max(points) as pts from bw_sessions
                                where pl is not null and plan_id = pl group by student_id) x on x.student_id = s.id
-                       where s.class_id = cid), '[]'::jsonb),
-    'week', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'points', x.pts, 'workouts', x.n) order by x.pts desc, s.name)
+                       where s.class_id = c.id), '[]'::jsonb),
+    'week', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'points', x.pts, 'workouts', x.n, 'last', coalesce(y.pts, 0)) order by x.pts desc, s.name)
                         from bw_students s
-                        join (select student_id, sum(total_reps + total_hold_sec) as pts, count(*) as n from bw_sessions
-                               where class_id = cid and created_at >= wk group by student_id) x on x.student_id = s.id
-                       where s.class_id = cid), '[]'::jsonb));
+                        join (select student_id, sum(points) as pts, count(*) as n from bw_sessions
+                               where class_id = c.id and created_at >= wk group by student_id) x on x.student_id = s.id
+                        left join (select student_id, sum(points) as pts from bw_sessions
+                                    where class_id = c.id and created_at >= lw and created_at < wk group by student_id) y on y.student_id = s.id
+                       where s.class_id = c.id), '[]'::jsonb),
+    'cup', case when c.year_group is null then '[]'::jsonb else coalesce((
+             select jsonb_agg(jsonb_build_object('id', k.id, 'name', k.name, 'size', z.size, 'week', z.wk, 'last', z.lw) order by k.name)
+               from bw_classes k
+               cross join lateral (select (select count(*) from bw_students s where s.class_id = k.id) as size,
+                                          (select coalesce(sum(points), 0) from bw_sessions x where x.class_id = k.id and x.created_at >= wk) as wk,
+                                          (select coalesce(sum(points), 0) from bw_sessions x where x.class_id = k.id and x.created_at >= lw and x.created_at < wk) as lw) z
+              where lower(k.year_group) = lower(c.year_group)), '[]'::jsonb) end);
 end $$;
 
 create or replace function public.bw_add_test(p_token text, p_r jsonb)
@@ -642,6 +691,7 @@ begin
   perform bw__teacher(p_token);
   return jsonb_build_object(
     'plan', bw__plan(p_class_id),
+    'star', bw__star(p_class_id),
     'test_label', (select k.test_label from bw_classes k where k.id = p_class_id),
     'tests', coalesce((select jsonb_agg(to_jsonb(t) order by t.created_at)
                          from bw_tests t where t.class_id = p_class_id), '[]'::jsonb));
