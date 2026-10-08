@@ -336,6 +336,8 @@ function makeCloud(){
   const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {auth:{persistSession:false}});
   const rpc = async (fn, args={}) => {
     const {data,error} = await sb.rpc(fn, args);
+    if(error && (error.code==='PGRST202' || /schema cache|could not find the function/i.test(error.message)))
+      throw new Error('The database is not set up yet. Run supabase/setup.sql in the Supabase SQL Editor, then reload this page.');
     if(error) throw new Error(error.message);
     if(data && !Array.isArray(data) && data.error) throw new Error(data.error);
     return data;

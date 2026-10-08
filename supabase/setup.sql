@@ -395,3 +395,6 @@ do $$ declare f record; begin
     end if;
   end loop;
 end $$;
+
+-- Make the Supabase API see the new functions straight away.
+notify pgrst, 'reload schema';
