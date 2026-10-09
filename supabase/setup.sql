@@ -147,11 +147,29 @@ create table if not exists public.bw_demos (
   url text not null
 );
 
+-- Live sessions: the teacher starts the challenge workout with the class; students tap "I'm ready"
+create table if not exists public.bw_live (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.bw_classes(id) on delete cascade,
+  plan_id uuid not null references public.bw_plans(id) on delete cascade,
+  warm boolean not null default true,
+  cool boolean not null default true,
+  status text not null default 'waiting' check (status in ('waiting', 'started', 'ended')),
+  start_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.bw_live_ready (
+  live_id uuid not null references public.bw_live(id) on delete cascade,
+  student_id uuid not null references public.bw_students(id) on delete cascade,
+  ready_at timestamptz not null default now(),
+  primary key (live_id, student_id)
+);
+
 /* ---------- Lock the tables: no direct access from the browser ---------- */
 
 do $$ declare t text; p record; begin
   foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens',
-                           'bw_plans','bw_challenges','bw_tests','bw_demos'] loop
+                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on table public.%I from anon, authenticated', t);
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
@@ -590,7 +608,7 @@ begin
              (select round(avg((e ->> 'level')::numeric), 1) from jsonb_array_elements(x.exercises) e) as lvl
         from bw_sessions x where x.student_id is not null order by x.student_id, x.created_at desc),
     best as (
-      select x.student_id, x.plan_id, max(x.points) as pts,
+      select x.student_id, x.plan_id, max(x.points) as pts, min(x.created_at) as first_at,
              (array_agg(x.created_at order by x.points desc, x.created_at desc))[1] as at
         from bw_sessions x where x.plan_id is not null and x.student_id is not null group by x.student_id, x.plan_id)
     select jsonb_build_object(
@@ -600,7 +618,7 @@ begin
                  'week', jsonb_build_object('n', coalesce(a.w_n, 0), 'points', coalesce(a.w_p, 0), 'flag', a.flag_w),
                  '4w', jsonb_build_object('n', coalesce(a.f_n, 0), 'points', coalesce(a.f_p, 0), 'flag', a.flag_f),
                  'all', jsonb_build_object('n', coalesce(a.a_n, 0), 'points', coalesce(a.a_p, 0), 'flag', a.flag_a),
-                 'last', a.last_at, 'lvl', l.lvl, 'plan_id', p.id, 'best', b.pts, 'best_at', b.at))
+                 'last', a.last_at, 'lvl', l.lvl, 'plan_id', p.id, 'best', b.pts, 'best_at', b.at, 'first_at', b.first_at))
           from bw_students s
           left join agg a on a.student_id = s.id
           left join lastlvl l on l.student_id = s.id
@@ -849,6 +867,87 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   delete from bw_challenges where id = p_id;
+end $$;
+
+/* ---------- Live sessions ---------- */
+
+-- Start the challenge for everyone 5 seconds from now (time for all screens to get the signal)
+create or replace function public.bw__live_go(p_live uuid) returns void
+language sql security definer set search_path = public as $$
+  update bw_live set status = 'started', start_at = now() + interval '5 seconds' where id = p_live and status = 'waiting'
+$$;
+
+create or replace function public.bw__live_state(p_live uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'id', l.id, 'class_id', l.class_id, 'status', l.status, 'start_at', l.start_at, 'server_now', now(),
+    'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at,
+    'plan', (select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id),
+    'size', (select count(*) from bw_students s where s.class_id = l.class_id),
+    'ready', coalesce((select jsonb_agg(r.student_id) from bw_live_ready r where r.live_id = l.id), '[]'::jsonb))
+  from bw_live l where l.id = p_live
+$$;
+
+create or replace function public.bw_t_live_start(p_token text, p_class_id uuid, p_warm boolean, p_cool boolean)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare pl uuid; lid uuid;
+begin
+  perform bw__teacher(p_token);
+  select p.id into pl from bw_plans p where p.class_id = p_class_id and p.active order by p.created_at desc limit 1;
+  if pl is null then raise exception 'Set a challenge workout for this class first.'; end if;
+  update bw_live set status = 'ended' where class_id = p_class_id and status <> 'ended';
+  insert into bw_live (class_id, plan_id, warm, cool) values (p_class_id, pl, coalesce(p_warm, true), coalesce(p_cool, true))
+  returning id into lid;
+  return bw__live_state(lid);
+end $$;
+
+create or replace function public.bw_t_live_state(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return bw__live_state(p_live);
+end $$;
+
+create or replace function public.bw_t_live_go(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  perform bw__live_go(p_live);
+  return bw__live_state(p_live);
+end $$;
+
+create or replace function public.bw_t_live_end(p_token text, p_live uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  update bw_live set status = 'ended' where id = p_live;
+end $$;
+
+-- Student: the live session of their class, if one is open (started less than 3 hours ago)
+create or replace function public.bw_live_check(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); lid uuid;
+begin
+  select l.id into lid from bw_live l join bw_students s on s.class_id = l.class_id
+   where s.id = sid and l.status <> 'ended' and l.created_at > now() - interval '3 hours'
+   order by l.created_at desc limit 1;
+  if lid is null then return null; end if;
+  return bw__live_state(lid) || jsonb_build_object('me_ready', exists(select 1 from bw_live_ready r where r.live_id = lid and r.student_id = sid));
+end $$;
+
+-- Student taps "I'm ready". When the whole class is ready, the session starts.
+create or replace function public.bw_live_ready(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); cid uuid;
+begin
+  select l.class_id into cid from bw_live l join bw_students s on s.class_id = l.class_id where l.id = p_live and s.id = sid and l.status <> 'ended';
+  if cid is null then return jsonb_build_object('error', 'This live session has ended.'); end if;
+  insert into bw_live_ready (live_id, student_id) values (p_live, sid) on conflict do nothing;
+  if (select count(*) from bw_live_ready r where r.live_id = p_live) >= (select count(*) from bw_students s where s.class_id = cid) then
+    perform bw__live_go(p_live);
+  end if;
+  return bw__live_state(p_live) || jsonb_build_object('me_ready', true);
 end $$;
 
 /* ---------- Permissions: helpers are private, bw_* functions are public ---------- */

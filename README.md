@@ -30,6 +30,8 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **How to guides:** every movement has a guide with the steps for all 4 levels, a safety point and a demo video link. It opens from the builder and from the timer, which pauses while the guide is open.
 - **Challenge workout:** the workout set by the teacher appears at the top of the student's page with its due date. "See the workout" opens a fixed programme to follow in order: exercises with a fixed level are shown as set, and for exercises where the teacher allowed it the student picks their own level (1 to 4) before starting.
 - **Class challenges:** shared team goals with a progress bar and no individual rankings.
+- **Due dates:** the challenge card says "due tomorrow", "due today" or "overdue since…".
+- **Live sessions:** when the teacher starts the challenge with the class, an alert appears on the student's page. They tap **I'm ready**, or **Not now**. The workout starts on every screen at the same moment, with no pause, and students who arrive late can **Join now** in step with the class. Optional alerts can be turned on from the Today tab; they show when the app is open in the background.
 - **Fitness checks:** five tests (squats and push-ups in 1 minute, plank and wall sit holds, jumping jacks in 1 minute), each with a guided timer. Students see their change since their first check.
 
 ## What teachers get
@@ -47,6 +49,8 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - Or paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.
 - A table per student: workouts this week, streak, average level, movements ready to level up. Click a name to see that student's full progress page.
 - **Challenge workout:** build it with the same builder from the exercise list, add a message and a due date, and give it to a whole year group or chosen forms at once. For each exercise, either fix the level for everyone or tick "Students choose their own level". See who has done it and who has not.
+- **Train together (live):** on the class page, start the challenge workout with the whole class at the same time, for example during a video call. The teacher uses their own teacher page and never logs into students' accounts. Each student taps **I'm ready** on their own page, and the page shows who is ready. The workout starts for everyone when the whole class is ready, or when you press **Start now**. Your own timer runs in step with theirs (nothing is saved for you), and each student saves their own score as usual. Only students with the app open get the alert, so ask them to open it first.
+- **Deadline:** once the due date has passed, the class page shows how many did it on time, late, or missed it. Late tries are tagged **Late** in the results, and the results board can show only students who did it on time, late, not done or missed.
 - **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
   - Choose whole year groups (forms added later join automatically), single forms, or both.
   - The card shows each form's part of the total, and students see their own form highlighted.

@@ -2,7 +2,7 @@
    Lets the app open without a connection (after the first visit) and install on the home screen.
    Pages are fetched from the network first, so a new version arrives as soon as you are online.
    Data requests to Supabase are never cached: they always go to the network. */
-const VERSION = 'bwb-v1';
+const VERSION = 'bwb-v2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 const LIBS = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
@@ -29,5 +29,14 @@ self.addEventListener('fetch', e => {
   e.respondWith(caches.match(req).then(saved => {
     const fresh = fetch(req).then(res => keep(req, res)).catch(() => saved);
     return saved || fresh;
+  }));
+});
+
+// Tapping a "live session" alert opens the app (or brings it to the front)
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type:'window', includeUncontrolled:true }).then(list => {
+    const open = list.find(c => 'focus' in c);
+    return open ? open.focus() : self.clients.openWindow('./');
   }));
 });
