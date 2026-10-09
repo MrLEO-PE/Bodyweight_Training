@@ -21,6 +21,9 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   - reps: the student has done that level at least twice, matched or beat their best reps per minute, and rated the workout 7/10 or easier
 
   "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
+- **Three tabs:** **Today** (the challenge, start buttons), **My progress** (rank, levels, badges, fitness checks) and **Class** (leaderboards, form cup, class challenges). The last tab is remembered.
+- **Warm-up and cool-down:** the timer starts with 5 warm-up moves and ends with 4 stretches, 30 seconds each, with a switch for each (On by default, remembered on the device). They can be skipped, exercises cannot.
+- **Install as an app:** add the app to the home screen (iPhone, Android or computer) so it opens full screen. Once opened online, it also starts without a connection. Workouts done offline upload later.
 - **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.
 - **Exercise list:** one page with all 20 movements and their 4 levels (80 exercises), printable, open to anyone from the home page.
@@ -47,6 +50,10 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Class challenges:** count workouts, reps or minutes between two dates, for example "Year 10: 1,000 workouts this half-term".
   - Choose whole year groups (forms added later join automatically), single forms, or both.
   - The card shows each form's part of the total, and students see their own form highlighted.
+- **Backup:** download everything (classes, students, workouts, fitness checks, challenges; no PINs) as an Excel file or a complete JSON file. The teacher page reminds you when the last backup is over a month old.
+- **New school year:** one guided page that downloads a backup, moves every class up a year (10C becomes 11C), removes the classes that leave and, if you choose, clears workouts and fitness checks. Students who stay keep their PIN and class code.
+- **Previous challenge workouts** stay on each class page with their results, and can be used again.
+- **Copy names:** one click copies the names of students who have not done the challenge (class page) or nothing in the chosen period (results board).
 - **Star of the week** per class, with a message, shown at the top of every student's page.
 - **Check flags:** scores that look too high (for example 90 reps in 40 seconds) are marked "Check" in the teacher tables, with the reason.
 - **Gender:** optional Male/Female per student, imported from a Gender/Sex column (M/F, Male/Female, Boy/Girl, Garçon/Fille) or set on the class page, which shows the male/female count.

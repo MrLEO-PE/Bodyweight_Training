@@ -281,7 +281,7 @@ returns setof bw_sessions
 language plpgsql security definer set search_path = public, extensions as $$
 declare sid uuid := bw__student(p_token);
 begin
-  return query select * from bw_sessions where student_id = sid order by created_at desc;
+  return query select * from bw_sessions where student_id = sid order by created_at desc, id;
 end $$;
 
 create or replace function public.bw_add_session(p_token text, p_s jsonb)
@@ -474,7 +474,7 @@ returns table (id uuid, name text, class_id uuid, gender text)
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return query select s.id, s.name, s.class_id, s.gender from bw_students s;
+  return query select s.id, s.name, s.class_id, s.gender from bw_students s order by s.id;
 end $$;
 
 create or replace function public.bw_t_set_gender(p_token text, p_student_id uuid, p_gender text) returns void
@@ -525,10 +525,89 @@ returns setof bw_sessions
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return query select * from bw_sessions where class_id = p_class_id order by created_at desc;
+  return query select * from bw_sessions where class_id = p_class_id order by created_at desc, id;
+end $$;
+
+create or replace function public.bw_t_student_sessions(p_token text, p_student_id uuid)
+returns setof bw_sessions
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return query select * from bw_sessions where student_id = p_student_id order by created_at desc, id;
+end $$;
+
+-- Delete the results of a class (workouts, fitness checks, challenge workouts, star) but keep its students.
+-- Used when a new school year starts.
+create or replace function public.bw_t_clear_results(p_token text, p_class_id uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  delete from bw_sessions where class_id = p_class_id;
+  delete from bw_tests where class_id = p_class_id;
+  delete from bw_plans where class_id = p_class_id;
+  update bw_classes set star_student = null, star_message = null, star_at = null, test_label = null where id = p_class_id;
 end $$;
 
 /* ---------- Workout of the week, challenges, fitness checks, demo videos ---------- */
+
+-- First score that looks too high for the time allowed, or null
+create or replace function public.bw__flag(ex jsonb, work int) returns text
+language sql immutable as $$
+  select (array_agg(q.m))[1] from (
+    select case when e ->> 'unit' = 'reps' and v::numeric > work * 1.5 then (e ->> 'name') || ': ' || v || ' reps in ' || work || 's'
+                when e ->> 'unit' = 'sec' and v::numeric > work + 5 then (e ->> 'name') || ': held ' || v || 's in a ' || work || 's exercise' end as m
+      from jsonb_array_elements(coalesce(ex, '[]'::jsonb)) e, jsonb_array_elements_text(e -> 'results') v) q
+   where q.m is not null
+$$;
+
+-- The whole results board in one call, added up by the database: every student with points and
+-- workout counts for this week, the last 4 weeks and all time, plus the challenge workout result.
+-- p_week and p_4w are the start of this week and of the last 4 weeks, in the teacher's time zone.
+create or replace function public.bw_t_board(p_token text, p_week timestamptz, p_4w timestamptz)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return (
+    with ps as (
+      select distinct on (class_id) class_id, id, title, due_on from bw_plans where active order by class_id, created_at desc),
+    agg as (
+      select x.student_id,
+             count(*) filter (where x.created_at >= p_week) as w_n,
+             coalesce(sum(x.points) filter (where x.created_at >= p_week), 0) as w_p,
+             count(*) filter (where x.created_at >= p_4w) as f_n,
+             coalesce(sum(x.points) filter (where x.created_at >= p_4w), 0) as f_p,
+             count(*) as a_n, coalesce(sum(x.points), 0) as a_p, max(x.created_at) as last_at,
+             (array_agg(bw__flag(x.exercises, x.work_sec) order by x.created_at desc)
+                filter (where x.created_at >= p_week and bw__flag(x.exercises, x.work_sec) is not null))[1] as flag_w,
+             (array_agg(bw__flag(x.exercises, x.work_sec) order by x.created_at desc)
+                filter (where x.created_at >= p_4w and bw__flag(x.exercises, x.work_sec) is not null))[1] as flag_f,
+             (array_agg(bw__flag(x.exercises, x.work_sec) order by x.created_at desc)
+                filter (where bw__flag(x.exercises, x.work_sec) is not null))[1] as flag_a
+        from bw_sessions x where x.student_id is not null group by x.student_id),
+    lastlvl as (
+      select distinct on (x.student_id) x.student_id,
+             (select round(avg((e ->> 'level')::numeric), 1) from jsonb_array_elements(x.exercises) e) as lvl
+        from bw_sessions x where x.student_id is not null order by x.student_id, x.created_at desc),
+    best as (
+      select x.student_id, x.plan_id, max(x.points) as pts,
+             (array_agg(x.created_at order by x.points desc, x.created_at desc))[1] as at
+        from bw_sessions x where x.plan_id is not null and x.student_id is not null group by x.student_id, x.plan_id)
+    select jsonb_build_object(
+      'students', coalesce((
+        select jsonb_agg(jsonb_build_object(
+                 'id', s.id, 'name', s.name, 'class_id', s.class_id, 'gender', s.gender,
+                 'week', jsonb_build_object('n', coalesce(a.w_n, 0), 'points', coalesce(a.w_p, 0), 'flag', a.flag_w),
+                 '4w', jsonb_build_object('n', coalesce(a.f_n, 0), 'points', coalesce(a.f_p, 0), 'flag', a.flag_f),
+                 'all', jsonb_build_object('n', coalesce(a.a_n, 0), 'points', coalesce(a.a_p, 0), 'flag', a.flag_a),
+                 'last', a.last_at, 'lvl', l.lvl, 'plan_id', p.id, 'best', b.pts, 'best_at', b.at))
+          from bw_students s
+          left join agg a on a.student_id = s.id
+          left join lastlvl l on l.student_id = s.id
+          left join ps p on p.class_id = s.class_id
+          left join best b on b.student_id = s.id and b.plan_id = p.id), '[]'::jsonb),
+      'plans', coalesce((select jsonb_object_agg(ps.class_id::text, jsonb_build_object('id', ps.id, 'title', ps.title, 'due_on', ps.due_on)) from ps), '{}'::jsonb)));
+end $$;
 
 create or replace function public.bw__clamp(v jsonb, mx int) returns int
 language sql immutable as $$
@@ -612,11 +691,12 @@ end $$;
 -- 'plan': best score per student on the class's current challenge workout.
 -- 'week': points since Monday, with last week's points (for "most improved").
 -- 'cup': every class in the same year group, with points this week and last week.
-create or replace function public.bw_class_board(p_token text)
+drop function if exists public.bw_class_board(text);
+create or replace function public.bw_class_board(p_token text, p_week timestamptz default null)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare sid uuid := bw__student(p_token); c bw_classes; pl uuid;
-        wk timestamptz := date_trunc('week', now()); lw timestamptz := date_trunc('week', now()) - interval '7 days';
+        wk timestamptz := coalesce(p_week, date_trunc('week', now())); lw timestamptz := coalesce(p_week, date_trunc('week', now())) - interval '7 days';
 begin
   select k.* into c from bw_classes k join bw_students s on s.class_id = k.id where s.id = sid;
   select p.id into pl from bw_plans p where p.class_id = c.id and p.active order by p.created_at desc limit 1;
@@ -719,6 +799,8 @@ begin
   perform bw__teacher(p_token);
   return jsonb_build_object(
     'plan', bw__plan(p_class_id),
+    'old_plans', coalesce((select jsonb_agg(to_jsonb(q) - 'active' order by q.created_at desc)
+                             from (select * from bw_plans where class_id = p_class_id and not active order by created_at desc limit 30) q), '[]'::jsonb),
     'star', bw__star(p_class_id),
     'test_label', (select k.test_label from bw_classes k where k.id = p_class_id),
     'tests', coalesce((select jsonb_agg(to_jsonb(t) order by t.created_at)
