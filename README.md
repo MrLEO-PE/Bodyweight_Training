@@ -21,8 +21,8 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   - reps: the student has done that level at least twice, matched or beat their best reps per minute, and rated the workout 7/10 or easier
 
   "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
-- **Three tabs:** **Today** (the challenge, start buttons), **My progress** (rank, levels, badges, fitness checks) and **Class** (leaderboards, form cup, class challenges). The last tab is remembered.
-- **Warm-up and cool-down:** the timer starts with 5 warm-up moves and ends with 4 stretches, 30 seconds each, with a switch for each (On by default, remembered on the device). They can be skipped, exercises cannot.
+- **Two tabs:** **Today** (this week, the challenge, one main button, and a **More** menu with the other ways to train) and **Me and my class** (rank, levels, badges, fitness checks, leaderboards, form cup, class challenges). The last tab is remembered.
+- **Warm-up and cool-down:** the timer always starts with 5 warm-up moves and ends with 4 stretches, 30 seconds each. They can be skipped, exercises cannot.
 - **Install as an app:** add the app to the home screen (iPhone, Android or computer) so it opens full screen. Once opened online, it also starts without a connection. Workouts done offline upload later.
 - **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.

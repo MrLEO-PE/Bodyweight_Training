@@ -221,6 +221,7 @@ ul.ready li.on{color:var(--ink);font-weight:700}
 .imfiles{list-style:none;padding:0;margin:0}
 .imfiles li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
 .imfiles li:first-child{border-top:0}
+details.more>summary,details.settings>summary{cursor:pointer}
 .board{list-style:none;padding:0;margin:0}
 .board li{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
 .board li:last-child{border-bottom:0}
@@ -1168,7 +1169,7 @@ function showPlanRun(p){
     ${p.due_on ? `<p class="muted" style="margin-top:-.3em">${dueText(p.due_on).replace(/^./, ch=>ch.toUpperCase())}</p>` : ''}
     ${p.note ? `<p>${esc(p.note)}</p>` : ''}
     <p class="muted">${n} exercises in this order, ${R} round${R===1?'':'s'}, ${w}s work and ${r}s rest. About <span id="pmins">${mins}</span> minutes in total.${rows.some(x=>x.free) ? ' Where you see four levels, choose the one that challenges you.' : ''}</p>
-    <div class="panel setrow" style="margin-bottom:12px">${wcSeg('warm','Warm-up')}${wcSeg('cool','Cool-down')}</div>
+    <p class="muted small" style="margin:0 0 12px;max-width:none">Includes a short warm-up and cool-down.</p>
     <div class="clist">${rows.map((x,i)=>{
       const f = FAM[x.fid], me = S.A?.fams[x.fid];
       return x.free
@@ -1211,9 +1212,9 @@ async function showStudentHome(){
   const planDone = !!X.plan && S.hist.some(s=>s.plan_id===X.plan.id);
   const wkN = S.hist.filter(h=>new Date(h.created_at).getTime() >= weekStart(Date.now())).length, goalN = S.cls.weekly_goal || 3;
   $('#home').className = '';
-  const tab = celebrate ? 'today' : ['today','progress','class'].includes(ls.get('bwb-tab','today')) ? ls.get('bwb-tab','today') : 'today';
+  const tab = celebrate ? 'today' : ['progress','class'].includes(ls.get('bwb-tab','today')) ? 'progress' : 'today';
   $('#home').innerHTML = `
-    <div class="tabs" role="tablist" aria-label="Sections">${[['today','Today'],['progress','My progress'],['class','Class']].map(([k,l])=>`<button type="button" role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('')}</div>
+    <div class="tabs" role="tablist" aria-label="Sections">${[['today','Today'],['progress','Me and my class']].map(([k,l])=>`<button type="button" role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('')}</div>
     <section data-pane="today" ${tab==='today' ? '' : 'hidden'}>
     ${celebrate}
     <p class="weekline"><b>This week:</b> ${wkN} of ${goalN} workouts${wkN >= goalN ? ' ✓' : ''}${X.plan ? ` · challenge ${planDone ? 'done ✓' : X.plan.due_on ? dueText(X.plan.due_on) : 'to do'}` : ''}</p>
@@ -1224,15 +1225,16 @@ async function showStudentHome(){
       <p style="margin:0 0 10px">Five short tests, about 10 minutes. Your teacher compares your results across the year.</p>
       <button class="btn" id="fit">Start the fitness check</button></div>` : ''}
     ${X.plan ? planCardHTML(X.plan, planDone, Object.keys(S.A.fams).length>0) : ''}
-    <div class="btns">
-      <button class="btn${X.plan && !planDone ? ' ghost' : ''}" id="quick">Quick 8-minute workout</button>
+    ${X.plan && !planDone ? '' : `<div class="btns"><button class="btn" id="quick">Do a quick 8-minute workout</button></div>`}
+    <details class="panel more" style="margin-top:12px"><summary>More</summary><div class="btns" style="margin-top:10px">
+      ${X.plan && !planDone ? `<button class="btn ghost" id="quick">Quick 8-minute workout</button>` : ''}
       <button class="btn ghost" id="build">Build my own workout</button>
       <button class="btn ghost" id="surp">Surprise me</button>
       <button class="btn ghost" id="lib">All exercises</button>
       <button class="btn ghost" id="tut">How it works</button>
       ${last ? `<button class="btn ghost" id="repeat">Repeat last workout</button>` : ''}
       ${last && ready ? `<button class="btn ghost" id="levelup">Repeat with ${ready} level-up${ready===1?'':'s'}</button>` : ''}
-    </div>
+    </div></details>
     ${offline ? `<p class="muted small">Showing the workouts saved on this device. Connect to the internet to see the latest.</p>` : ''}
     ${isInstalled() ? '' : `<p class="small"><button type="button" class="link" id="instBtn">Add the app to your home screen</button></p>`}
     ${'Notification' in window && Notification.permission === 'default' ? `<p class="small"><button type="button" class="link" id="notifBtn">Turn on alerts for live sessions</button></p>` : ''}
@@ -1243,8 +1245,7 @@ async function showStudentHome(){
     ${badgesHTML(BS.earned)}
     ${X.tests.length ? `<h2>My fitness checks</h2>${testTableHTML(X.tests)}
       ${testDone ? `<p><button class="btn ghost small" id="fit">Redo the fitness check</button></p>` : ''}` : ''}
-    </section>
-    <section data-pane="class" ${tab==='class' ? '' : 'hidden'}>
+    <h2>My class</h2>
     ${boardHTML(S.board, !!X.plan) || '<p class="muted">The class leaderboard is not available right now.</p>'}
     ${cupHTML(S.board)}
     ${X.challenges.length ? `<h2>Class challenges</h2><div class="clist">${X.challenges.map(ch=>challengeHTML(ch)).join('')}</div>` : ''}
@@ -1306,7 +1307,7 @@ function showBuilder(){
     : `<h1>Build your workout</h1>
       <p class="muted">Pick one level per movement, 8 to 12 exercises in total. They run in the order you pick them. For a full-body session, include Legs, Upper body and Core.${S.A && Object.keys(S.A.fams).length ? ' <b>Your level</b> shows where you are, <b>Try this</b> means you are ready to step up.' : ''} Tap <b>How to</b> to see how each exercise is done.</p>
       ${S.planId ? `<p class="panel small" style="max-width:none">Your teacher's workout of the week is loaded. Tap another level on any exercise to make it easier or harder.</p>` : ''}`}
-    <div class="panel setrow" style="margin-top:12px">${seg('work','Work',[30,40,45],'s')}${seg('rest','Rest',[15,20,30],'s')}${seg('rounds','Rounds',[1,2,3],'')}${T ? '' : wcSeg('warm','Warm-up') + wcSeg('cool','Cool-down')}</div>
+    <div class="panel setrow" style="margin-top:12px">${seg('work','Work',[30,40,45],'s')}${seg('rest','Rest',[15,20,30],'s')}${seg('rounds','Rounds',[1,2,3],'')}</div>
     ${REGIONS.map(r=>`<h2>${r}</h2>` + FAMILIES.filter(f=>f.region===r).map(famRow).join('')).join('')}
     <div class="dock" id="dock"></div>`);
   view.onclick = e => {
@@ -1331,7 +1332,7 @@ function showBuilder(){
 function toggleEx(fam, lvl){
   const i = S.sel.findIndex(x=>x.fam===fam);
   if(i>-1){ if(S.sel[i].lvl===lvl) S.sel.splice(i,1); else S.sel[i].lvl=lvl; }
-  else { if(S.sel.length>=MAX_EX) return toast(`Maximum ${MAX_EX} exercises. Remove one first.`); S.sel.push({fam,lvl}); }
+  else { if(S.sel.length>=MAX_EX) return toast(`Maximum ${MAX_EX} exercises. Remove one first.`); S.sel.push({fam, lvl, ...(S.planFor ? {free:true} : {})}); }
   refreshBuilder();
 }
 function refreshBuilder(){
@@ -1619,13 +1620,13 @@ const TUTORIAL = [
   ['Join your class', 'Scan the QR code on your teacher\'s class sheet, or open the link. It fills in your form and class code for you. Otherwise, choose your form, for example 10C, and type the class code.', 'join'],
   ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked.', 'name'],
   ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge workout is below it, with the date to do it by. Tap "See the workout".', 'home'],
-  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up and ends with stretches (you can switch them off).', 'programme'],
+  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up and ends with stretches.', 'programme'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but you cannot skip an exercise.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. If you are ready early, tap "Skip rest".', 'rest'],
   ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, then save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
   ['Train live with your class', 'When your teacher starts a live session, an alert appears on your page. Tap "I\'m ready". The workout starts for everyone at the same moment, so keep the app open. If you are late, tap "Join now".', null],
   ['Add it to your home screen', 'On your phone, add the app to your home screen so it opens like a normal app and starts quickly. Tap "Add the app to your home screen" on your page for the steps.', null],
-  ['See your points and progress', 'Compare with your class on the leaderboards, help your form win the form cup, collect badges, climb from Rookie to Legend and keep your weekly streak going.', 'board']
+  ['See your points and progress', 'Open the <b>Me and my class</b> tab to compare with your class on the leaderboards, help your form win the form cup, collect badges, climb from Rookie to Legend and keep your weekly streak going.', 'board']
 ];
 function showTutorial(){
   const back = S.student ? showStudentHome : S.teacher ? showTeacherHome : showHome;
@@ -1779,18 +1780,19 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
-    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="board">Results board</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">How it works (teachers)</button></p>
+    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">How it works (teachers)</button></p>
     <div id="ck"></div>
-    <div class="panel"><div class="h3">Add a class or form</div>
+    <details class="panel settings"><summary><b>Add a class by hand</b></summary><div class="h3" style="margin-top:10px">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
       <label class="field"><span>Year group</span><input id="cy" list="yearList" placeholder="e.g. Year 10" autocomplete="off"></label></div>
       <div class="row2"><label class="field"><span>Class code</span><input id="cc" placeholder="Students type this to join"></label>
       <label class="field"><span>Weekly goal</span>${goalSelect('cg')}</label></div>
       <datalist id="yearList"></datalist>
-      <div class="btns"><button class="btn" id="add">Add class</button><button class="btn ghost" id="imp">Import students from a file</button></div>
-      <p class="muted small" style="margin:6px 0 0">Import reads Excel, LibreOffice and CSV files, and Google Sheets downloaded as .xlsx. It can create the classes for you.</p></div>
+      <div class="btns"><button class="btn" id="add">Add class</button></div>
+      <p class="muted small" style="margin:6px 0 0">Import reads Excel, LibreOffice and CSV files, and Google Sheets downloaded as .xlsx. It can create the classes for you.</p></details>
     <div class="between"><h2>Your classes</h2><button class="btn ghost small" id="all">Download all classes (.xlsx)</button></div>
     <div id="list" class="muted">Loading…</div>
+    <details class="panel settings" style="margin-top:28px"><summary><b>Settings: class challenges, demo videos, backup, new school year, PIN</b></summary>
     <h2>Class challenges</h2>
     <p class="muted">Team goals for one class or several. Students see a shared progress bar, never individual rankings.</p>
     <div id="chl" class="muted">Loading…</div>
@@ -1802,7 +1804,7 @@ async function showTeacherHome(){
       <div class="row2"><label class="field"><span>Current PIN</span><input id="op" type="password" autocomplete="current-password"></label>
       <label class="field"><span>New PIN, at least 6 characters</span><input id="np" type="password" autocomplete="new-password"></label></div>
       <button class="btn small" id="chp">Change PIN</button>
-      <p class="muted small">This PIN is shared by every teacher in the department.</p></details>`);
+      <p class="muted small">This PIN is shared by every teacher in the department.</p></details></details>`);
   // Typing 10C fills in Year 10, unless the teacher has typed a year group themselves
   $('#cn').oninput = () => { if(!$('#cy').dataset.typed) $('#cy').value = guessYear($('#cn').value); };
   $('#cy').oninput = () => { $('#cy').dataset.typed = $('#cy').value ? '1' : ''; };
@@ -2676,7 +2678,7 @@ function showLiveTeacher(c, g){
     <h1>Train together${g ? (g==='M' ? ' (boys)' : ' (girls)') : ''}</h1>
     <p class="muted">${esc(c.name)} does the challenge workout at the same time as you, for example during a video call. Each student taps <b>I'm ready</b> on their own page. The workout starts for everyone when the whole class is ready, or when you press <b>Start now</b>. Students who are late can still join, in step with the others.</p>
     <p class="small">Ask students to open the app now: the alert only reaches students who have it open.</p>
-    <div class="panel setrow" id="lvOpts">${wcSeg('warm','Warm-up')}${wcSeg('cool','Cool-down')}</div>
+    <p class="small muted" id="lvOpts">The session includes a short warm-up and cool-down.</p>
     <p style="margin-top:14px"><button class="btn" id="lvOpen">Open the session</button></p>
     <div id="lv"></div>`);
   WC_HOOK = null;
@@ -2813,11 +2815,12 @@ const TEACHER_GUIDE = [
   ['Check who did it', 'Each class page shows who did the challenge on time, late or not at all, with their points. The <b>Results board</b> lets you filter by year group, form, gender and challenge status, copy the names of students who missed it, and download Excel.'],
   ['Train together live', 'On the class page, press <b>Train together (live)</b> during a video call. Students tap <b>I\'m ready</b> on their own page, and the workout starts for everyone at the same moment, when all are ready or when you press <b>Start now</b>. You never log into a student\'s account. Ask students to open the app first.'],
   ['My classes', 'Press <b>☆ Mine</b> on the forms you teach. They move to the top of your list on this device.'],
+  ['Settings', 'Class challenges, demo videos, backup, new school year and the teacher PIN are in the <b>Settings</b> drawer at the bottom of the Classes page. By default, students choose their own level for each exercise; untick that for any exercise you want to fix.'],
   ['Backups and next year', 'Download a backup from time to time. At the end of the school year, <b>New school year</b> moves every class up one year and keeps students\' PINs.']];
 function showTeacherGuide(){
   setView(`<p class="noprint"><button class="btn ghost small" id="back">Back</button> <button class="btn small" id="print">Print this page</button></p>
     <h1>How it works for teachers</h1>
-    <p class="muted">Eight short steps. Every teacher uses the same teacher PIN and sees every class.</p>
+    <p class="muted">${TEACHER_GUIDE.length} short steps. Every teacher uses the same teacher PIN and sees every class.</p>
     <div class="clist tut">${TEACHER_GUIDE.map(([t, d], i)=>`<div class="panel"><div class="step">${i+1}. ${t}</div><p style="margin:4px 0 0;max-width:none">${d}</p></div>`).join('')}</div>`);
   $('#back').onclick = showTeacherHome;
   $('#print').onclick = () => window.print();
