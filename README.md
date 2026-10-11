@@ -13,7 +13,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Rank titles:** Rookie, Athlete (1,000 points), Pro (4,000) and Legend (10,000), with a progress bar to the next rank.
 - **Badges:** 12 to collect (first workout, streaks, level up, all-rounder, early bird, record breaker...). New badges, level-ups, ranks and personal bests are celebrated with confetti.
 - **Weekly recap** of last week, **star of the week** chosen by the teacher, **Surprise me** and **Quick 8-minute** workouts at the student's own levels, and a **voice coach** in the timer (can be turned off).
-- **How it works:** a step-by-step tutorial with screenshots (images in [tutorial/](tutorial/)), open from the home page and the student page.
+- **How it works:** a 10-step tutorial with screenshots (images in [tutorial/](tutorial/)), open from the home page and the student page.
 - **Timer details:** full-screen with beeps, a "switch sides" signal on one-sided exercises, and score logging during rest. The screen stays awake.
 - **Progress:** a weekly goal set by the teacher, a streak of weeks with the goal reached, a chart of average level over time, personal bests, and a table of their current level for each movement.
 - **Challenge:** a movement is marked **Ready for Level N** when:

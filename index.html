@@ -1558,13 +1558,14 @@ function showHow(fid, only){
 
 /* ===== Student tutorial (screenshots in tutorial/) ===== */
 const TUTORIAL = [
-  ['Join your class', 'Choose your class or form, for example 10C, and type the class code your teacher gave you.', 'join'],
+  ['Join your class', 'Scan the QR code on your teacher\'s class sheet, or open the link. It fills in your form and class code for you. Otherwise, choose your form, for example 10C, and type the class code.', 'join'],
   ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked.', 'name'],
-  ['Your page', 'The challenge workout from your teacher is at the top, with the date to do it by. Tap "See the workout".', 'home'],
-  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start.', 'programme'],
+  ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge workout is below it, with the date to do it by. Tap "See the workout".', 'home'],
+  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up and ends with stretches (you can switch them off).', 'programme'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but you cannot skip an exercise.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. If you are ready early, tap "Skip rest".', 'rest'],
   ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, then save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
+  ['Train live with your class', 'When your teacher starts a live session, an alert appears on your page. Tap "I\'m ready". The workout starts for everyone at the same moment, so keep the app open. If you are late, tap "Join now".', null],
   ['Add it to your home screen', 'On your phone, add the app to your home screen so it opens like a normal app and starts quickly. Tap "Add the app to your home screen" on your page for the steps.', null],
   ['See your points and progress', 'Compare with your class on the leaderboards, help your form win the form cup, collect badges, climb from Rookie to Legend and keep your weekly streak going.', 'board']
 ];
@@ -1572,7 +1573,7 @@ function showTutorial(){
   const back = S.student ? showStudentHome : S.teacher ? showTeacherHome : showHome;
   setView(`<p><button class="btn ghost small" id="back">Back</button></p>
     <h1>How it works</h1>
-    <p class="muted">Nine steps, from joining your class to seeing your points.</p>
+    <p class="muted">${TUTORIAL.length} steps, from joining your class to seeing your points.</p>
     <div class="clist tut">${TUTORIAL.map(([t, d, img], i)=>`<div class="panel">
       <div class="step">${i+1}. ${t}</div><p style="margin:4px 0 0">${d}</p>
       ${img ? `<img src="tutorial/${img}.png" alt="Screenshot: ${esc(t)}" loading="lazy" onerror="this.remove()">` : ''}</div>`).join('')}</div>
