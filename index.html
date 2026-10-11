@@ -517,6 +517,7 @@ function makeCloud(){
     tStudents: (tok, cid) => rpc('bw_t_students', {p_token:tok, p_class_id:cid}),
     tAddStudents: (tok, cid, names, genders) => rpc('bw_t_add_students', {p_token:tok, p_class_id:cid, p_names:names, ...(genders ? {p_genders:genders} : {})}),
     tSetGender: (tok, id, g) => rpc('bw_t_set_gender', {p_token:tok, p_student_id:id, p_gender:g || ''}),
+    tResetPins: (tok, ids) => rpc('bw_t_reset_pins', {p_token:tok, p_ids:ids}),
     tResetPin: (tok, id) => rpc('bw_t_reset_pin', {p_token:tok, p_student_id:id}),
     tAllStudents: tok => rpcAll('bw_t_all_students', {p_token:tok}),
     tMoveStudents: (tok, to, ids) => rpc('bw_t_move_students', {p_token:tok, p_to:to, p_ids:ids}),
@@ -594,6 +595,7 @@ const Local = {
       else if(g){ const x = d.students.find(s=>s.class_id===cid && norm(s.name)===norm(name)); if(x && !x.gender) x.gender = g; } });
     this._save(d); return n;
   },
+  async tResetPins(tok, ids){ const d=this._t(tok); let n=0; d.students.forEach(s=>{ if(ids.includes(s.id)){ s.pin=null; n++; } }); this._save(d); return n; },
   async tResetPin(tok, id){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.pin=null; this._save(d); },
   async tAllStudents(tok){ return this._t(tok).students.map(s=>({id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null})); },
   async tSetGender(tok, id, g){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.gender = normGender(g); this._save(d); },
@@ -2021,9 +2023,9 @@ async function showClass(c){
     const others = byYear(S.tclasses.filter(k=>k.id!==c.id));
     const moveSel = s => others.length ? `<select class="mv" data-move="${s.id}" aria-label="Move ${esc(s.name)} to another class"><option value="">Move to…</option>${others.map(([y, cs])=>`<optgroup label="${esc(y)}">${cs.map(k=>`<option value="${k.id}">${esc(k.name)}</option>`).join('')}</optgroup>`).join('')}</select>` : '';
     $('#studs').innerHTML = (st.length > BIG_CLASS ? `<p class="warn" style="max-width:none"><b>${st.length} students in one class.</b> Students pick their name from this list, so give each form its own class. Use <b>Import from a file</b> above and choose your form column (like 10C): students already here are moved into their form with their PIN and workouts. When this class is empty, delete it.</p>` : '')
-      + (st.length ? `${genderCounts(st)}<table><thead><tr><th>Name</th><th>Gender</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
+      + (st.length ? `${genderCounts(st)}<p class="btns" style="margin:0 0 8px"><button type="button" class="btn ghost small" id="pickAll">Select all</button><button type="button" class="btn ghost small" id="resetPicked">Reset PIN of selected students</button><button type="button" class="btn ghost small" id="resetAll">Reset every PIN in this class</button></p><table><thead><tr><th>Name</th><th>Gender</th><th>This week</th><th>Streak</th><th>Workouts</th><th>Average level</th><th>Ready to level up</th><th>Last workout</th><th>PIN</th><th></th></tr></thead><tbody>
       ${st.map(s=>{ const mine=ss.filter(x=>x.student_id===s.id), w=weekStats(mine,goal), A=analyse(mine);
-        return `<tr><td><button class="link" data-view="${s.id}">${esc(s.name)}</button></td><td><select class="mv" data-gender="${s.id}" aria-label="Gender of ${esc(s.name)}"><option value="">–</option><option value="M" ${s.gender==='M'?'selected':''}>Male</option><option value="F" ${s.gender==='F'?'selected':''}>Female</option></select></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
+        return `<tr><td><label class="check" style="margin:0"><input type="checkbox" data-pick="${s.id}" aria-label="Select ${esc(s.name)}"> <button class="link" data-view="${s.id}">${esc(s.name)}</button></label></td><td><select class="mv" data-gender="${s.id}" aria-label="Gender of ${esc(s.name)}"><option value="">–</option><option value="M" ${s.gender==='M'?'selected':''}>Male</option><option value="F" ${s.gender==='F'?'selected':''}>Female</option></select></td><td>${w.thisWeek} of ${goal}</td><td>${w.streak} wk</td><td>${mine.length}</td>
         <td>${mine.length?avgLvl(mine[0]):''}</td><td>${mine.length?readyCount(A):''}</td><td>${mine[0]?fmtDate(mine[0].created_at):''}</td><td>${s.has_pin?'Set':'Not set'}</td>
         <td class="actions">${moveSel(s)}${s.has_pin?`<button class="btn ghost small" data-reset="${s.id}">Reset PIN</button>`:''}<button class="btn ghost small" data-rm="${s.id}">Remove</button></td></tr>`; }).join('')}</tbody></table>`
       : '<p>No students yet. Paste your class list above.</p>');
@@ -2032,6 +2034,15 @@ async function showClass(c){
       : '<p>No workouts logged yet.</p>';
     $$('[data-view]').forEach(b=>b.onclick=()=>{ const s=st.find(x=>x.id===b.dataset.view); showTeacherStudent(c, s, ss.filter(x=>x.student_id===s.id), X.tests.filter(t=>t.student_id===s.id)); });
     $$('[data-reset]').forEach(b=>b.onclick=async()=>{ try{ await Store.tResetPin(S.teacher, b.dataset.reset); toast('PIN cleared. The student creates a new one at next login.'); load(); }catch(e){ fail('Could not reset', e); } });
+    // Reset several PINs: students choose a new one at their next login. Their workouts and results are kept.
+    const resetPins = async (ids, label) => {
+      if(!ids.length) return toast('Tick at least one student first.');
+      if(!confirm(`Reset the PIN of ${label}? Each student creates a new PIN at their next login. Their workouts and results are kept.`)) return;
+      try{ const n = await Store.tResetPins(S.teacher, ids); toast(`${n} PIN${+n===1?'':'s'} cleared. Students create a new one at next login.`); load(); }catch(e){ fail('Could not reset', e); }
+    };
+    if($('#pickAll')) $('#pickAll').onclick = () => { const boxes = $$('[data-pick]'), all = boxes.every(x=>x.checked); boxes.forEach(x=>x.checked = !all); };
+    if($('#resetPicked')) $('#resetPicked').onclick = () => { const ids = $$('[data-pick]:checked').map(x=>x.dataset.pick); resetPins(ids, ids.length + ' selected student' + (ids.length===1 ? '' : 's')); };
+    if($('#resetAll')) $('#resetAll').onclick = () => resetPins(st.map(x=>x.id), 'all ' + st.length + ' students of ' + c.name);
     $$('[data-rm]').forEach(b=>b.onclick=async()=>{ const s=st.find(x=>x.id===b.dataset.rm); if(confirm(`Remove ${s.name}? Their past workouts stay in the results.`)){ try{ await Store.tRemoveStudent(S.teacher, s.id); load(); }catch(e){ fail('Could not remove', e); } } });
     $$('[data-gender]').forEach(sel=>sel.onchange=async()=>{
       try{ await Store.tSetGender(S.teacher, sel.dataset.gender, sel.value); const x = st.find(y=>y.id===sel.dataset.gender); if(x) x.gender = sel.value || null; $('#gcount').outerHTML = genderCounts(st); toast('Saved'); }

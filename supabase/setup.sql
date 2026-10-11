@@ -546,6 +546,18 @@ begin
   delete from bw_tokens where student_id = p_student_id;
 end $$;
 
+-- Reset the PIN of several students at once: each creates a new PIN at their next login. Workouts and results are kept.
+create or replace function public.bw_t_reset_pins(p_token text, p_ids uuid[]) returns int
+language plpgsql security definer set search_path = public, extensions as $$
+declare n int;
+begin
+  perform bw__teacher(p_token);
+  with u as (update bw_students set pin_hash = null, failed_attempts = 0, locked_until = null where id = any(p_ids) returning id)
+    select count(*) into n from u;
+  delete from bw_tokens where student_id = any(p_ids);
+  return n;
+end $$;
+
 create or replace function public.bw_t_remove_student(p_token text, p_student_id uuid) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin
