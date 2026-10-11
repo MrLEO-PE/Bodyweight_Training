@@ -900,14 +900,13 @@ function showHome(){
     <div class="stairs" aria-label="Example: the four squat levels">
       ${FAM.squat.levels.map(l=>`<div style="${lc(l.lvl)}"><span class="st">Level ${l.lvl}</span>${esc(l.n)}</div>`).join('')}
     </div>
-    <p class="btns"><button class="btn ghost" id="tut">Tutorial</button><button class="btn ghost" id="lib">See all exercises, levels 1 to 4</button></p>
+    <p class="btns"><button class="btn ghost" id="tut">Tutorial</button></p>
     <div class="choice">
       <button class="role" id="goS"><b>I'm a student</b><span class="muted">Build a workout and track my progress</span></button>
       <button class="role" id="goT"><b>I'm a teacher</b><span class="muted">Manage classes, follow progress, download results</span></button>
     </div>`);
   $('#goS').onclick = showStudentClass;
   $('#goT').onclick = showTeacherLogin;
-  $('#lib').onclick = showLibrary;
   $('#tut').onclick = showTutorial;
 }
 
