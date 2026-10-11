@@ -216,6 +216,11 @@ ul.ready li.on{color:var(--ink);font-weight:700}
 .sheet-steps{flex:1;min-width:200px;margin:0;padding-left:1.2em}
 .sheet-steps li{margin:0 0 8px}
 .weekline{margin:0 0 12px;padding:8px 12px;border-radius:8px;background:var(--panel,#f3f4f6);max-width:none}
+.pulse-steps{margin:0;padding-left:1.2em}
+.pulse-steps li{margin:0 0 8px}
+.imfiles{list-style:none;padding:0;margin:0}
+.imfiles li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.imfiles li:first-child{border-top:0}
 .board{list-style:none;padding:0;margin:0}
 .board li{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
 .board li:last-child{border-bottom:0}
@@ -520,6 +525,10 @@ function makeCloud(){
     tBoard: tok => rpc('bw_t_board', {p_token:tok, p_week:iso(weekStart(Date.now())), p_4w:iso(Date.now() - 28*864e5)}),
     tClearResults: (tok, cid) => rpc('bw_t_clear_results', {p_token:tok, p_class_id:cid}),
     classBoard: tok => rpc('bw_class_board', {p_token:tok, p_week:iso(weekStart(Date.now()))}),
+    tImportStart: (tok, name) => rpc('bw_t_import_start', {p_token:tok, p_name:name}),
+    tImportTag: (tok, imp, cid, names) => rpc('bw_t_import_tag', {p_token:tok, p_import:imp, p_class_id:cid, p_names:names}),
+    tImports: tok => rpc('bw_t_imports', {p_token:tok}),
+    tDeleteImport: (tok, id) => rpc('bw_t_delete_import', {p_token:tok, p_import:id}),
     tLiveStart: (tok, cid, w, c, g) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c, p_gender:g || null}),
     tLiveState: (tok, id) => rpc('bw_t_live_state', {p_token:tok, p_live:id}),
     tLiveGo: (tok, id) => rpc('bw_t_live_go', {p_token:tok, p_live:id}),
@@ -598,6 +607,12 @@ const Local = {
     });
     this._save(d); return n;
   },
+  async tImportStart(tok, name){ const d=this._t(tok), id=uid(); (d.imports ||= []).push({id, file_name:name||'Pasted list', created_at:new Date().toISOString()}); this._save(d); return id; },
+  async tImportTag(tok, imp, cid, names){ const d=this._t(tok), set=new Set(names.map(norm)); d.students.forEach(s=>{ if(s.class_id===cid && set.has(norm(s.name))) s.import_id=imp; }); this._save(d); },
+  async tImports(tok){ const d=this._t(tok); return (d.imports||[]).map(i=>{ const st=d.students.filter(s=>s.import_id===i.id);
+    return {...i, students:st.length, classes:[...new Set(st.map(s=>d.classes.find(c=>c.id===s.class_id)?.name).filter(Boolean))].sort()}; }).sort((a,b)=>b.created_at.localeCompare(a.created_at)); },
+  async tDeleteImport(tok, id){ const d=this._t(tok), gone=d.students.filter(s=>s.import_id===id).map(s=>s.id);
+    d.students=d.students.filter(s=>s.import_id!==id); d.sessions.forEach(x=>{ if(gone.includes(x.student_id)) x.student_id=null; }); d.imports=(d.imports||[]).filter(i=>i.id!==id); this._save(d); return gone.length; },
   async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
   _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id);
@@ -868,8 +883,8 @@ function progressHTML(sessions, goal, A, you=true){
         <td>${f.best}${unitWord(f.unit)}</td><td>${f.times}×</td><td>${statusHTML(f)}</td></tr>`).join('')}</tbody></table></div>
     <h2>${you?'My workouts':'Workouts'}</h2>
     <div class="tbl-wrap panel"><table>
-      <thead><tr><th>Date</th><th>Points</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th></tr></thead>
-      <tbody>${sessions.map(s=>`<tr><td>${fmtDate(s.created_at)}${s.plan_id?' <em class="tag">Challenge</em>':''}${s.pending?' <span class="pending">waiting to upload</span>':''}</td><td><b>${num(pointsOf(s))}</b></td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td></tr>`).join('')}</tbody></table></div>`
+      <thead><tr><th>Date</th><th>Points</th><th>Exercises</th><th>Average level</th><th>Total reps</th><th>Hold (s)</th><th>Effort</th><th>Heart rate</th></tr></thead>
+      <tbody>${sessions.map(s=>`<tr><td>${fmtDate(s.created_at)}${s.plan_id?' <em class="tag">Challenge</em>':''}${s.pending?' <span class="pending">waiting to upload</span>':''}</td><td><b>${num(pointsOf(s))}</b></td><td>${s.exercises.length}</td><td>${avgLvl(s)}</td><td>${s.total_reps}</td><td>${s.total_hold_sec}</td><td>${s.rpe}/10</td><td>${s.bpm ? s.bpm + ' bpm' : ''}</td></tr>`).join('')}</tbody></table></div>`
     : `<p>${you?'No workouts yet. Build your first one.':'No workouts yet.'}</p>`}`;
 }
 
@@ -1482,7 +1497,48 @@ function finishWorkout(){
   say('Workout complete. Well done!');
   if(P.noSave){ cleanupPlayer(); return P.onDone && P.onDone(); }
   P.doneAt = new Date().toISOString();
-  cleanupPlayer(); showSummary();
+  cleanupPlayer(); showPulse();
+}
+
+/* ===== Heart rate: count the pulse for 30 seconds, then type it ===== */
+let PULSE = {};
+function showPulse(){
+  clearInterval(PULSE.id); PULSE = {};
+  setView(`<h1>Check your heart rate</h1>
+    <p class="muted">One last thing before you save: count your pulse. It shows how hard your body worked.</p>
+    <div class="panel"><ol class="pulse-steps">
+      <li><b>Stay still</b> and breathe normally.</li>
+      <li><b>Find your pulse</b> with two fingers (not your thumb): on the inside of your wrist, just below the base of your thumb, or on the side of your neck under your jaw.</li>
+      <li><b>Press the button.</b> Count every beat you feel for 30 seconds, until the clock stops.</li>
+      <li><b>Type the number</b> you counted. The app doubles it to give your beats per minute (bpm).</li></ol></div>
+    <div id="pbox" style="margin-top:14px"><button class="btn" id="pulseGo">Start the 30-second clock</button></div>`);
+  $('#pulseGo').onclick = startPulse;
+}
+function startPulse(){
+  try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume && audio.resume(); }catch(e){}
+  PULSE.end = Date.now() + 30000;
+  $('#pbox').innerHTML = `<div class="panel feature" style="text-align:center"><div class="muted small">Count your beats</div><div class="big-time" id="pclock">30</div><p class="muted small" style="margin:0;max-width:none">Keep counting until the clock stops.</p></div>`;
+  beep(880, .15);
+  PULSE.id = setInterval(() => {
+    const el = $('#pclock'); if(!el) return clearInterval(PULSE.id);
+    const left = Math.max(0, Math.ceil((PULSE.end - Date.now()) / 1000));
+    if(el.textContent !== String(left)){ el.textContent = left; if(left > 0 && left <= 3) beep(660, .1); }
+    if(left <= 0){ clearInterval(PULSE.id); beep(1046, .4); try{ navigator.vibrate?.(300); }catch(e){} pulseAsk(); }
+  }, 200);
+}
+function pulseAsk(){
+  $('#pbox').innerHTML = `<div class="panel"><div class="h3" style="margin:0 0 8px">Time is up. How many beats did you count?</div>
+    <label class="field" style="max-width:280px"><span>Beats counted in 30 seconds</span><input id="bpmIn" type="number" inputmode="numeric" min="15" max="125" autocomplete="off"></label>
+    <p id="bpmOut" style="font-weight:700;min-height:1.5em;margin:0 0 12px"></p>
+    <button class="btn" id="pulseOk">Continue</button> <button type="button" class="link" id="pulseAgain">Count again</button></div>`;
+  $('#bpmIn').oninput = () => { const n = +$('#bpmIn').value; $('#bpmOut').textContent = n > 0 ? `${n} × 2 = ${n*2} beats per minute` : ''; };
+  $('#pulseAgain').onclick = showPulse;
+  $('#pulseOk').onclick = () => {
+    const n = Math.round(+$('#bpmIn').value);
+    if(!(n >= 15 && n <= 125)) return toast('Type the number of beats you counted in 30 seconds. It is usually between 20 and 60 after exercise.');
+    P.bpm = n * 2; showSummary();
+  };
+  $('#bpmIn').focus();
 }
 
 /* ===== Summary and save ===== */
@@ -1497,6 +1553,7 @@ function showSummary(){
   setView(`<h1>Workout done</h1>
     <p class="muted">Check your scores, rate how hard it felt, then save. The last exercise has no rest after it, so type its score here.</p>
     <div class="panel feature"><div class="muted small">Your points. ${POINTS_TEXT}</div><div class="big-time" style="text-align:left;font-size:3rem;margin:4px 0 0" id="pts">0</div></div>
+    <p class="small" style="max-width:none">Heart rate: <b>${P.bpm} bpm</b> <button type="button" class="link" id="pulseRedo">Measure again</button></p>
     <div class="tbl-wrap panel"><table>
       <thead><tr><th>Exercise</th><th>Level</th>${Array.from({length:rounds},(_,r)=>`<th>Round ${r+1}</th>`).join('')}<th>Personal best</th></tr></thead>
       <tbody>${P.ex.map((e,i)=>`<tr><td>${esc(e.name)}<div class="muted small">${e.unit==='sec'?'seconds':'reps'}</div></td>
@@ -1509,6 +1566,7 @@ function showSummary(){
     <p style="margin-top:26px"><button class="btn" id="save">Save workout</button> <button class="btn ghost" id="discard">Discard</button></p>`);
   const showPts = () => { $('#pts').textContent = num(calcPoints(P.ex)); };
   showPts();
+  $('#pulseRedo').onclick = showPulse;
   $$('input.num').forEach(inp=>inp.oninput=()=>{
     const i=+inp.dataset.i; P.ex[i].results[+inp.dataset.r] = inp.value==='' ? '' : Math.max(0,parseInt(inp.value,10)||0);
     $('#pb'+i).innerHTML = pbCell(P.ex[i]); showPts();
@@ -1519,7 +1577,7 @@ function showSummary(){
     if(P.ex.some(e=>e.results.some(v=>v===''))) return toast('Fill in every score.');
     if(!rpe) return toast('Choose how hard it felt, from 1 to 10.');
     const exercises = P.ex.map(e=>({fid:e.fid, family:e.family, name:e.name, level:e.level, unit:e.unit, results:e.results.map(Number)}));
-    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, done_at:P.doneAt, ...(P.planId ? {plan_id:P.planId} : {}) };
+    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, bpm:P.bpm, done_at:P.doneAt, ...(P.planId ? {plan_id:P.planId} : {}) };
     const pbs = exercises.filter(e=>prevPB[e.name]!=null && Math.max(...e.results)>prevPB[e.name]).length;
     const msg = `Workout saved: ${num(calcPoints(exercises))} points${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
     $('#save').disabled = true;
@@ -2002,8 +2060,8 @@ function planResultsHTML(st, ss, P){
   const rows = planResults(st, ss, P), first = firstOnPlan(ss, P);
   return `<details class="panel" open style="margin-top:12px"><summary>Results by student</summary>
     <p class="muted small">Best try per student. ${POINTS_TEXT} Each exercise shows the level done and the score per round.</p>
-    <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Student</th><th>Done</th><th>Points</th><th>Effort</th>${P.exercises.map((x,k)=>`<th>${k+1}. ${esc(FAM[x.fid]?.name || '')}</th>`).join('')}</tr></thead><tbody>
-    ${rows.map(({s, x}, i)=>`<tr${x ? '' : ' class="muted"'}><td>${x ? i+1 : ''}</td><td>${esc(s.name)}</td><td>${x ? fmtDate(x.created_at) + (isLate(first.get(s.id), P.due_on) ? ' <span class="tag late">Late</span>' : '') : `<b>${duePassed(P.due_on) ? 'Missed' : 'Not done'}</b>`}</td><td>${x ? `<b>${num(pointsOf(x))}</b>${flagTag(flagsOf(x))}` : ''}</td><td>${x ? x.rpe+'/10' : ''}</td>
+    <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Student</th><th>Done</th><th>Points</th><th>Effort</th><th>Heart rate</th>${P.exercises.map((x,k)=>`<th>${k+1}. ${esc(FAM[x.fid]?.name || '')}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(({s, x}, i)=>`<tr${x ? '' : ' class="muted"'}><td>${x ? i+1 : ''}</td><td>${esc(s.name)}</td><td>${x ? fmtDate(x.created_at) + (isLate(first.get(s.id), P.due_on) ? ' <span class="tag late">Late</span>' : '') : `<b>${duePassed(P.due_on) ? 'Missed' : 'Not done'}</b>`}</td><td>${x ? `<b>${num(pointsOf(x))}</b>${flagTag(flagsOf(x))}` : ''}</td><td>${x ? x.rpe+'/10' : ''}</td><td>${x?.bpm ? x.bpm+' bpm' : ''}</td>
       ${P.exercises.map((_,k)=>{ const e = x?.exercises?.[k]; return `<td>${e ? `<span class="lvtag" style="${lc(e.level)}">L${e.level}</span> ${e.results.join(' / ')}${e.unit==='sec'?' s':''}` : ''}</td>`; }).join('')}</tr>`).join('')}
     </tbody></table></div></details>`;
 }
@@ -2066,9 +2124,11 @@ async function showImport(classId){
     <h1>Import students</h1>
     <p>Choose an Excel (.xlsx or .xls), LibreOffice (.ods) or CSV file.${back ? ` Students go into ${esc(back.name)} unless you choose otherwise.` : ''}</p>
     <p class="muted small">From Google Sheets, first use File &gt; Download &gt; Microsoft Excel (.xlsx). The file is read on this device: only student names and class names are saved, never the other columns.</p>
+    <div id="imHist"></div>
     <div class="panel"><label class="field" style="margin:0"><span>Spreadsheet file</span><input type="file" id="imf" accept=".xlsx,.xls,.ods,.csv,.tsv,.txt"></label></div>
     <div id="imMap"></div><div id="imPrev"></div>`);
   $('#back').onclick = () => back ? showClass(back) : showTeacherHome();
+  imHistory(back?.id);
   $('#imf').onchange = async () => {
     const f = $('#imf').files[0]; if(!f) return;
     try{ IM.wb = await readSheetFile(f); }
@@ -2223,6 +2283,22 @@ function imPreview(){
   if($('#imFresh')) $('#imFresh').onchange = e => { IM.fresh = e.target.checked; imPreview(); };
   $('#imGo').onclick = imImport;
 }
+// The files imported so far, each with a cross to delete an old version and the students who came from it
+async function imHistory(classId){
+  const box = $('#imHist'); if(!box) return;
+  let list; try{ list = await Store.tImports(S.teacher); }catch(e){ return; }
+  if(!list.length){ box.innerHTML = ''; return; }
+  box.innerHTML = `<h2>Files already imported</h2><div class="panel"><ul class="imfiles">${list.map(i=>`<li><span><b>${esc(i.file_name)}</b>
+      <span class="muted small"> · ${fmtDate(i.created_at)} · ${i.students} student${+i.students===1?'':'s'}${i.classes.length ? ' in ' + esc(i.classes.join(', ')) : ''}</span></span>
+      <button type="button" class="btn ghost small" data-delimp="${i.id}" aria-label="Delete ${esc(i.file_name)}" title="Delete this file and its students">✕</button></li>`).join('')}</ul>
+    <p class="muted small" style="margin:8px 0 0;max-width:none">A student who appears in a newer file belongs to the newer file. Deleting an old file removes only the students who are not in a newer one. Their past workouts are kept without a name.</p></div>`;
+  $$('[data-delimp]').forEach(b=>b.onclick = async () => {
+    const i = list.find(x=>x.id===b.dataset.delimp);
+    if(!confirm(`Delete "${i.file_name}" and its ${i.students} student${+i.students===1?'':'s'}? This cannot be undone.`)) return;
+    try{ const n = await Store.tDeleteImport(S.teacher, i.id); toast(`${i.file_name} deleted${n ? ', with ' + n + ' student' + (+n===1?'':'s') : ''}`); showImport(classId); }
+    catch(e){ fail('Could not delete the file', e); }
+  });
+}
 async function imImport(){
   const todo = imGroups().groups.filter(imIncluded);
   for(const g of todo){
@@ -2244,6 +2320,7 @@ async function imImport(){
   }catch(e){ btn.disabled = false; btn.textContent = 'Try again'; return fail('Could not delete the old classes', e); }
   const left = new Set(IM.everyone.map(s=>s.class_id));   // classes that had students before
   try{
+    IM.imp = IM.imp || await Store.tImportStart(S.teacher, IM.file);
     for(const g of todo){
       let id = imDest(g);
       if(id==='new'){
@@ -2261,6 +2338,7 @@ async function imImport(){
       }
       // students just moved here are skipped by name, but get their gender filled in from the file
       added += await Store.tAddStudents(S.teacher, id, names, IM.map.gender ? g.genders : undefined); total += g.names.length;
+      await Store.tImportTag(S.teacher, IM.imp, id, names);
     }
   }catch(e){
     btn.disabled = false; btn.textContent = 'Try again';
@@ -2509,7 +2587,7 @@ const H_ST = ['Student','Workouts','This week','Weekly goal','Streak (weeks)','L
 const H_PR = ['Student','Movement','Current level','Best round','Unit','Times at this level','Next step'];
 const H_FIT = ['Date','Student','Check','Squats (1 min)','Push-ups (1 min)','Push-up version','Plank (s)','Wall sit (s)','Jumping jacks (1 min)'];
 const STATUS_TXT = {ready:'Ready for next level', working:'Keep going', top:'Top level', mastered:'Top level mastered'};
-const rowsWork = ss => ss.map(s=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Exercises':s.exercises.length,'Rounds':s.rounds,'Work (s)':s.work_sec,'Rest (s)':s.rest_sec,'Average level':avgLvl(s),'Total reps':s.total_reps,'Total hold (s)':s.total_hold_sec,'Duration (min)':+(s.duration_sec/60).toFixed(1),'Effort (1-10)':s.rpe,'Points':pointsOf(s),'Challenge workout':s.plan_id?'Yes':''}));
+const rowsWork = ss => ss.map(s=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Exercises':s.exercises.length,'Rounds':s.rounds,'Work (s)':s.work_sec,'Rest (s)':s.rest_sec,'Average level':avgLvl(s),'Total reps':s.total_reps,'Total hold (s)':s.total_hold_sec,'Duration (min)':+(s.duration_sec/60).toFixed(1),'Effort (1-10)':s.rpe,'Heart rate (bpm)':s.bpm||'','Points':pointsOf(s),'Challenge workout':s.plan_id?'Yes':''}));
 const rowsEx = ss => ss.flatMap(s=>s.exercises.map(e=>({'Date':fmtDate(s.created_at),'Time':fmtTime(s.created_at),'Student':s.student_name,'Movement':e.family,'Exercise':e.name,'Level':e.level,'Unit':e.unit==='sec'?'seconds':'reps','Round 1':e.results[0]??'','Round 2':e.results[1]??'','Round 3':e.results[2]??'','Best':Math.max(...e.results),'Total':sum(e.results)})));
 const rowsSt = (st,ss,goal) => st.map(x=>{ const m=ss.filter(s=>s.student_id===x.id), w=weekStats(m,goal);
   return {'Student':x.name,'Workouts':m.length,'This week':w.thisWeek,'Weekly goal':goal,'Streak (weeks)':w.streak,'Last workout':m[0]?fmtDate(m[0].created_at):'','Total reps':sum(m.map(s=>s.total_reps)),
@@ -2537,7 +2615,7 @@ async function downloadClass(c){
     XLSX.utils.book_append_sheet(wb, sheet(rowsPr(st,ss),H_PR), 'Progress');
     if(X.plan){
       const heads = ['#','Student','Done','Points','Effort (1-10)', ...X.plan.exercises.map((e,k)=>`${k+1}. ${FAM[e.fid]?.name||''}`)];
-      const rows = planResults(st, ss, X.plan).map(({s, x}, i)=>{ const r = {'#':x?i+1:'', 'Student':s.name, 'Done':x?fmtDate(x.created_at):'Not done', 'Points':x?pointsOf(x):'', 'Effort (1-10)':x?x.rpe:''};
+      const rows = planResults(st, ss, X.plan).map(({s, x}, i)=>{ const r = {'#':x?i+1:'', 'Student':s.name, 'Done':x?fmtDate(x.created_at):'Not done', 'Points':x?pointsOf(x):'', 'Effort (1-10)':x?x.rpe:'', 'Heart rate (bpm)':x?.bpm||''};
         X.plan.exercises.forEach((_,k)=>{ const e = x?.exercises?.[k]; r[heads[5+k]] = e ? `L${e.level}: ${e.results.join(' / ')}` : ''; }); return r; });
       XLSX.utils.book_append_sheet(wb, sheet(rows, heads), 'Challenge workout');
     }

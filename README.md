@@ -32,6 +32,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Class challenges:** shared team goals with a progress bar and no individual rankings.
 - **This week line and first visit:** the Today tab starts with "This week: 2 of 3 workouts · challenge due tomorrow". The first time a student logs in, three short cards explain the challenge, the timer and the points. The Quick 8-minute workout becomes the main button when no challenge is waiting.
 - **Join from a link or QR code:** the class sheet's link opens the app with the form and class code already filled in. The student only chooses their name and a PIN.
+- **Heart rate after every workout:** when the timer ends, the student must count their pulse. A page explains how (two fingers on the wrist or neck), starts a 30-second clock with beeps, then asks for the beats counted. The app doubles it to give the bpm, and the student then fills in their scores and saves. The bpm shows in the student's workout table, the challenge results and the Excel exports (new column "Heart rate (bpm)").
 - **Due dates:** the challenge card says "due tomorrow", "due today" or "overdue since…".
 - **Live sessions:** when the teacher starts the challenge with the class, an alert appears on the student's page. They tap **I'm ready**, or **Not now**. The workout starts on every screen at the same moment, with no pause, and students who arrive late can **Join now** in step with the class. Optional alerts can be turned on from the Today tab; they show when the app is open in the background.
 - **Fitness checks:** five tests (squats and push-ups in 1 minute, plank and wall sit holds, jumping jacks in 1 minute), each with a guided timer. Students see their change since their first check.
@@ -44,6 +45,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   - It also recognises a form column from its values (10C, 10-C, 10/2), whatever the heading.
   - It can create new classes with a join code, and names already in a class are skipped.
   - Students already in another class are moved instead of duplicated. For example, a file with a form column splits a 170-student "Year 10" class into 10A, 10B, 10C… Their PIN, workouts and fitness checks go with them.
+  - The import page lists **files already imported** (name, date, number of students, classes), each with a ✕ to delete an old version. A student who is in a newer file belongs to the newer file, so deleting an old file removes only the students who are not in a newer one. Their past workouts are kept without a name.
   - "Start fresh" deletes all existing classes, students and workouts first (you must type DELETE), so you can replace a previous import with a new file.
   - It warns before creating a class of more than 60 students, since students pick their name from that class's list.
   - The file is read on the teacher's device: only names and classes are saved.

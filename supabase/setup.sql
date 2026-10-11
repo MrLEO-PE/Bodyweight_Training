@@ -88,6 +88,8 @@ create table if not exists public.bw_sessions (
 );
 -- Points of the workout: each rep 1 point, each second held half a point, times the level (x1, x1.5, x2, x2.5)
 alter table public.bw_sessions add column if not exists points int not null default 0;
+-- Heart rate counted by the student after the workout (beats per minute)
+alter table public.bw_sessions add column if not exists bpm int check (bpm between 30 and 250);
 create index if not exists bw_sessions_class on public.bw_sessions (class_id, created_at desc);
 create index if not exists bw_sessions_student on public.bw_sessions (student_id, created_at desc);
 
@@ -167,13 +169,21 @@ create table if not exists public.bw_live_ready (
   primary key (live_id, student_id)
 );
 
+-- Files imported by the teacher: each student remembers the newest file they appear in
+create table if not exists public.bw_imports (
+  id uuid primary key default gen_random_uuid(),
+  file_name text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.bw_students add column if not exists import_id uuid references public.bw_imports(id) on delete set null;
+
 alter table public.bw_live add column if not exists only_gender text check (only_gender in ('M', 'F'));
 
 /* ---------- Lock the tables: no direct access from the browser ---------- */
 
 do $$ declare t text; p record; begin
   foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens',
-                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready'] loop
+                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on table public.%I from anon, authenticated', t);
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
@@ -323,6 +333,7 @@ begin
     raise exception 'This workout is not valid.';
   end if;
   if coalesce((p_s ->> 'rpe')::int, 0) not between 1 and 10
+     or coalesce(nullif(p_s ->> 'bpm', '')::int, 100) not between 30 and 250
      or coalesce((p_s ->> 'rounds')::int, 0) not between 1 and 3
      or coalesce((p_s ->> 'work_sec')::int, 0) not between 10 and 120
      or coalesce((p_s ->> 'rest_sec')::int, -1) not between 0 and 120 then
@@ -337,7 +348,7 @@ begin
     end;
   end if;
   insert into bw_sessions (class_id, class_name, student_id, student_name, work_sec, rest_sec, rounds,
-                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id, points)
+                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id, points, bpm)
   values (c.id, c.name, s.id, s.name,
           (p_s ->> 'work_sec')::int, (p_s ->> 'rest_sec')::int, (p_s ->> 'rounds')::int, ex,
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
@@ -345,7 +356,7 @@ begin
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
                     jsonb_array_elements_text(e -> 'results') v where e ->> 'unit' = 'sec'), 0),
           least(greatest(coalesce((p_s ->> 'duration_sec')::int, 0), 0), 7200),
-          (p_s ->> 'rpe')::int, done_at, plan, bw__points(ex))
+          (p_s ->> 'rpe')::int, done_at, plan, bw__points(ex), nullif(p_s ->> 'bpm', '')::int)
   returning * into r;
   return r;
 end $$;
@@ -970,6 +981,47 @@ begin
     perform bw__live_go(p_live);
   end if;
   return bw__live_state(p_live) || jsonb_build_object('me_ready', true);
+end $$;
+
+/* ---------- Imported files ---------- */
+
+create or replace function public.bw_t_import_start(p_token text, p_name text) returns uuid
+language plpgsql security definer set search_path = public, extensions as $$
+declare iid uuid;
+begin
+  perform bw__teacher(p_token);
+  insert into bw_imports (file_name) values (left(coalesce(nullif(trim(p_name), ''), 'Pasted list'), 200)) returning id into iid;
+  return iid;
+end $$;
+
+-- Mark the students with these names in this class as coming from this file (also those who were already there or moved here)
+create or replace function public.bw_t_import_tag(p_token text, p_import uuid, p_class_id uuid, p_names text[]) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  update bw_students s set import_id = p_import
+   where s.class_id = p_class_id and lower(trim(s.name)) in (select lower(trim(n)) from unnest(p_names) n);
+end $$;
+
+create or replace function public.bw_t_imports(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return coalesce((select jsonb_agg(jsonb_build_object('id', i.id, 'file_name', i.file_name, 'created_at', i.created_at,
+            'students', (select count(*) from bw_students s where s.import_id = i.id),
+            'classes', coalesce((select jsonb_agg(distinct k.name) from bw_students s join bw_classes k on k.id = s.class_id where s.import_id = i.id), '[]'::jsonb))
+          order by i.created_at desc) from bw_imports i), '[]'::jsonb);
+end $$;
+
+-- Delete a file from the list, with the students who came from it and are not in a newer file
+create or replace function public.bw_t_delete_import(p_token text, p_import uuid) returns int
+language plpgsql security definer set search_path = public, extensions as $$
+declare n int;
+begin
+  perform bw__teacher(p_token);
+  with d as (delete from bw_students where import_id = p_import returning 1) select count(*) into n from d;
+  delete from bw_imports where id = p_import;
+  return n;
 end $$;
 
 /* ---------- Permissions: helpers are private, bw_* functions are public ---------- */
