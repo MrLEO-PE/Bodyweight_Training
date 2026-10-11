@@ -942,6 +942,7 @@ async function showStudentClass(){
   const J = new URLSearchParams(location.search), jc = J.get('join'), jk = J.get('k');
   if(jc && classes.some(x=>x.id===jc)){ try{ history.replaceState(null, '', location.pathname); }catch(e){} $('#cls').value = jc; if(jk){ $('#code').value = jk; go(); } }
 }
+const TEACHER_OPT = '__teacher';
 function showStudentName(c, code, list){
   setView(`<h1>${esc(c.name)}</h1>
     <div class="panel">
@@ -955,8 +956,15 @@ function showStudentName(c, code, list){
   $('#stu').innerHTML = list.length
     ? `<option value="">Choose your name</option>` + list.map(s=>`<option value="${s.id}" ${last.student_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')
     : `<option value="">No names yet. Ask your teacher.</option>`;
+  // Every class list ends with TEACHER: the PE teacher logs in here with the teacher PIN and lands on this class
+  $('#stu').insertAdjacentHTML('beforeend', `<option value="${TEACHER_OPT}">TEACHER</option>`);
   const pinUI = () => {
     const s = list.find(x=>x.id===$('#stu').value);
+    if($('#stu').value === TEACHER_OPT){
+      $('#pinBox').innerHTML = `<label class="field"><span>Teacher PIN</span><input id="pin" type="password" autocomplete="current-password"></label>`;
+      $('#pin').onkeydown = e => { if(e.key==='Enter') login(); };
+      return;
+    }
     $('#pinBox').innerHTML = !s ? '' : s.has_pin
       ? `<label class="field"><span>Your 4-digit PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>
          <p class="small muted">Forgot your PIN? Ask your PE teacher to reset it, then choose a new one.</p>`
@@ -967,6 +975,14 @@ function showStudentName(c, code, list){
   };
   $('#stu').onchange = pinUI; pinUI();
   const login = async () => {
+    if($('#stu').value === TEACHER_OPT){
+      $('#login').disabled = true;
+      try{
+        const r = await Store.teacherLogin($('#pin').value); S.teacher = r.token; tabStore.set('bwb-teacher', r.token); header();
+        const k = (await Store.tClasses(S.teacher)).find(x=>x.id===c.id); k ? showClass(k) : showTeacherHome();
+      }catch(e){ $('#login').disabled = false; toast(e.message); }
+      return;
+    }
     const s = list.find(x=>x.id===$('#stu').value);
     if(!s) return toast('Choose your name.');
     const pin = ($('#pin')?.value||'').trim();
