@@ -16,6 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <style>
 :root{
   --paper:#EEF2F5; --card:#FFFFFF; --ink:#15202B; --muted:#5B6875; --line:#D3DAE1;
@@ -205,6 +206,16 @@ ul.ready{list-style:none;padding:0;margin:0;columns:2;column-gap:20px}
 ul.ready li{padding:4px 0;color:var(--muted)}
 ul.ready li.on{color:var(--ink);font-weight:700}
 .tag.late{background:var(--l3);color:var(--on3)}
+.ck ul{list-style:none;padding:0;margin:8px 0 0}
+.ck li{padding:5px 0;color:var(--ink)}
+.ck li.on{color:var(--muted)}
+.sheet{max-width:640px;margin:0 auto}
+.sheet-grid{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.sheet-qr{width:200px;flex:none}
+.sheet-qr svg{width:100%;height:auto;display:block}
+.sheet-steps{flex:1;min-width:200px;margin:0;padding-left:1.2em}
+.sheet-steps li{margin:0 0 8px}
+.weekline{margin:0 0 12px;padding:8px 12px;border-radius:8px;background:var(--panel,#f3f4f6);max-width:none}
 .board{list-style:none;padding:0;margin:0}
 .board li{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
 .board li:last-child{border-bottom:0}
@@ -509,7 +520,7 @@ function makeCloud(){
     tBoard: tok => rpc('bw_t_board', {p_token:tok, p_week:iso(weekStart(Date.now())), p_4w:iso(Date.now() - 28*864e5)}),
     tClearResults: (tok, cid) => rpc('bw_t_clear_results', {p_token:tok, p_class_id:cid}),
     classBoard: tok => rpc('bw_class_board', {p_token:tok, p_week:iso(weekStart(Date.now()))}),
-    tLiveStart: (tok, cid, w, c) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c}),
+    tLiveStart: (tok, cid, w, c, g) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c, p_gender:g || null}),
     tLiveState: (tok, id) => rpc('bw_t_live_state', {p_token:tok, p_live:id}),
     tLiveGo: (tok, id) => rpc('bw_t_live_go', {p_token:tok, p_live:id}),
     tLiveEnd: (tok, id) => rpc('bw_t_live_end', {p_token:tok, p_live:id}),
@@ -521,7 +532,7 @@ function makeCloud(){
     listDemos: () => rpc('bw_list_demos'),
     tSetDemo: (tok, key, url) => rpc('bw_t_set_demo', {p_token:tok, p_key:key, p_url:url}),
     tSetPlan: (tok, cid, plan) => rpc('bw_t_set_plan', {p_token:tok, p_class_id:cid, p_plan:plan}),
-    tClearPlan: (tok, cid) => rpc('bw_t_clear_plan', {p_token:tok, p_class_id:cid}),
+    tClearPlan: (tok, cid, g) => rpc('bw_t_clear_plan', {p_token:tok, p_class_id:cid, p_only_gender:g || null}),
     tClassExtras: (tok, cid) => rpc('bw_t_class_extras', {p_token:tok, p_class_id:cid}),
     tSetTestLabel: (tok, cid, label) => rpc('bw_t_set_test_label', {p_token:tok, p_class_id:cid, p_label:label}),
     tChallenges: tok => rpc('bw_t_challenges', {p_token:tok}),
@@ -591,21 +602,21 @@ const Local = {
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
   _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id);
     return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at,
-      plan:p ? {...p} : null, size:d.students.filter(s=>s.class_id===L.class_id).length, ready:[...L.ready]}; },
+      plan:p ? {...p} : null, only_gender:L.only_gender||null, size:d.students.filter(s=>s.class_id===L.class_id && (!L.only_gender || s.gender===L.only_gender)).length, ready:[...L.ready]}; },
   _liveGo(L){ if(L.status==='waiting'){ L.status='started'; L.start_at=new Date(Date.now()+5000).toISOString(); } },
-  async tLiveStart(tok, cid, w, c){ const d=this._t(tok), P=this._plan(d,cid); if(!P) throw new Error('Set a challenge workout for this class first.');
+  async tLiveStart(tok, cid, w, c, g){ g = g || null; const d=this._t(tok), P=this._plan(d,cid,g); if(!P) throw new Error('Set a challenge workout for this class first.');
     (d.live ||= []).forEach(x=>{ if(x.class_id===cid && x.status!=='ended') x.status='ended'; });
-    const L={id:uid(), class_id:cid, plan_id:P.id, warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
+    const L={id:uid(), class_id:cid, only_gender:g, plan_id:P.id, warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
     d.live.push(L); this._save(d); return this._liveState(d,L); },
   async tLiveState(tok, id){ const d=this._t(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
   async tLiveGo(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async tLiveEnd(tok, id){ const d=this._t(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
-  async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.class_id===s.class_id && x.status!=='ended' && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
+  async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.class_id===s.class_id && x.status!=='ended' && (!x.only_gender || x.only_gender===s.gender) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
     return L ? {...this._liveState(d,L), me_ready:L.ready.includes(s.id)} : null; },
-  async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && x.class_id===s.class_id);
+  async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && x.class_id===s.class_id && (!x.only_gender || x.only_gender===s.gender));
     if(!L) throw new Error('This live session has ended.');
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
-    if(L.ready.length >= d.students.filter(x=>x.class_id===s.class_id).length) this._liveGo(L);
+    if(L.ready.length >= this._liveState(d,L).size) this._liveGo(L);
     this._save(d); return {...this._liveState(d,L), me_ready:true}; },
   async tStudentSessions(tok, sid){ return this._t(tok).sessions.filter(s=>s.student_id===sid).sort(newestFirst); },
   async tClearResults(tok, cid){
@@ -616,13 +627,13 @@ const Local = {
     const d=this._t(tok), wk=weekStart(Date.now()), w4=Date.now()-28*864e5, at=x=>new Date(x.created_at).getTime(), plans={};
     d.classes.forEach(c=>{ const p=this._plan(d,c.id); if(p) plans[c.id]={id:p.id, title:p.title, due_on:p.due_on||null}; });
     const agg = list => ({n:list.length, points:sum(list.map(pointsOf)), flag:list.map(x=>flagsOf(x)[0]).find(Boolean) || null});
-    const students = d.students.map(s=>{ const mine=d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst), P=this._plan(d,s.class_id), b=P ? bestOnPlan(mine,P).get(s.id) : null;
+    const students = d.students.map(s=>{ const mine=d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst), P=this._plan(d,s.class_id,s.gender||null), b=P ? bestOnPlan(mine,P).get(s.id) : null;
       return {id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null, week:agg(mine.filter(x=>at(x)>=wk)), '4w':agg(mine.filter(x=>at(x)>=w4)), all:agg(mine),
-        last:mine[0]?.created_at||null, lvl:mine[0] ? avgLvl(mine[0]) : null, plan_id:P?.id||null, best:b ? pointsOf(b) : null, best_at:b?.created_at||null, first_at:P ? (firstOnPlan(mine, P).get(s.id) || null) : null}; });
+        last:mine[0]?.created_at||null, lvl:mine[0] ? avgLvl(mine[0]) : null, plan_id:P?.id||null, due_on:P?.due_on||null, best:b ? pointsOf(b) : null, best_at:b?.created_at||null, first_at:P ? (firstOnPlan(mine, P).get(s.id) || null) : null}; });
     return {students, plans};
   },
   async classBoard(tok){
-    const [d,s] = this._stu(tok), cid = s.class_id, plan = this._plan(d, cid), wk = weekStart(Date.now());
+    const [d,s] = this._stu(tok), cid = s.class_id, plan = this._plan(d, cid, s.gender||null), wk = weekStart(Date.now());
     const studs = d.students.filter(x=>x.class_id===cid), rank = (a,b)=>b.points-a.points || a.name.localeCompare(b.name);
     const lwD = new Date(wk); lwD.setDate(lwD.getDate()-7); const lw = lwD.getTime();
     const at = x => new Date(x.created_at).getTime();
@@ -643,7 +654,8 @@ const Local = {
     if(c){ c.star_student = sid || null; c.star_message = sid ? (msg||'').trim().slice(0,200) || null : null; c.star_at = sid ? new Date().toISOString() : null; }
     this._save(d);
   },
-  _plan(d, cid){ const p=(d.plans||[]).filter(x=>x.class_id===cid && x.active).sort(newestFirst)[0]; return p ? {...p} : null; },
+  // g undefined: the class-wide challenge. g 'M' or 'F': that student's challenge (boys-only or girls-only first)
+  _plan(d, cid, g){ const p=(d.plans||[]).filter(x=>x.class_id===cid && x.active && (!x.only_gender || x.only_gender===g)).sort((a,b)=>(a.only_gender?0:1)-(b.only_gender?0:1) || newestFirst(a,b))[0]; return p ? {...p} : null; },
   _inCh: (ch, c) => ch.class_ids.includes(c.id) || (!!c.year_group && (ch.year_groups||[]).some(y=>norm(y)===norm(c.year_group))),
   _chl(d, ch){
     const count = ss => ch.metric==='workouts' ? ss.length : ch.metric==='reps' ? sum(ss.map(s=>s.total_reps)) : Math.floor(sum(ss.map(s=>s.duration_sec))/60);
@@ -654,7 +666,7 @@ const Local = {
   _testsAsc: a => [...a].sort((x,y)=>x.created_at.localeCompare(y.created_at)),
   async studentExtras(tok){
     const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id), today=ymd(new Date()), cutoff=ymd(addDays(-14));
-    return { plan:this._plan(d,c.id), star:this._star(d,c.id), test_label:c.test_label||null,
+    return { plan:this._plan(d,c.id,s.gender||null), star:this._star(d,c.id), test_label:c.test_label||null,
       tests:this._testsAsc((d.tests||[]).filter(t=>t.student_id===s.id)),
       challenges:(d.challenges||[]).filter(ch=>this._inCh(ch, c) && ch.starts_on<=today && ch.ends_on>=cutoff).map(ch=>this._chl(d,ch)).sort((a,b)=>a.ends_on.localeCompare(b.ends_on)) };
   },
@@ -672,9 +684,9 @@ const Local = {
     else d.demos[key]=url;
     this._save(d);
   },
-  async tSetPlan(tok, cid, p){ const d=this._t(tok); d.plans ||= []; d.plans.forEach(x=>{ if(x.class_id===cid) x.active=false; }); d.plans.push({...p, id:uid(), class_id:cid, active:true, created_at:new Date().toISOString()}); this._save(d); },
-  async tClearPlan(tok, cid){ const d=this._t(tok); (d.plans||[]).forEach(x=>{ if(x.class_id===cid) x.active=false; }); this._save(d); },
-  async tClassExtras(tok, cid){ const d=this._t(tok); return {plan:this._plan(d,cid), old_plans:(d.plans||[]).filter(x=>x.class_id===cid && !x.active).sort(newestFirst).slice(0,30), star:this._star(d,cid), test_label:d.classes.find(c=>c.id===cid)?.test_label||null, tests:this._testsAsc((d.tests||[]).filter(t=>t.class_id===cid))}; },
+  async tSetPlan(tok, cid, p){ const d=this._t(tok), g=p.only_gender||null; d.plans ||= []; d.plans.forEach(x=>{ if(x.class_id===cid && (x.only_gender||null)===g) x.active=false; }); d.plans.push({...p, only_gender:g, id:uid(), class_id:cid, active:true, created_at:new Date().toISOString()}); this._save(d); },
+  async tClearPlan(tok, cid, g){ const d=this._t(tok); (d.plans||[]).forEach(x=>{ if(x.class_id===cid && (x.only_gender||null)===(g||null)) x.active=false; }); this._save(d); },
+  async tClassExtras(tok, cid){ const d=this._t(tok); return {plan:this._plan(d,cid), plans:(d.plans||[]).filter(x=>x.class_id===cid && x.active).sort((a,b)=>(a.only_gender?1:0)-(b.only_gender?1:0) || (a.only_gender||'').localeCompare(b.only_gender||'')), old_plans:(d.plans||[]).filter(x=>x.class_id===cid && !x.active).sort(newestFirst).slice(0,30), star:this._star(d,cid), test_label:d.classes.find(c=>c.id===cid)?.test_label||null, tests:this._testsAsc((d.tests||[]).filter(t=>t.class_id===cid))}; },
   async tSetTestLabel(tok, cid, label){ const d=this._t(tok), c=d.classes.find(x=>x.id===cid); if(c) c.test_label=(label||'').trim()||null; this._save(d); },
   async tChallenges(tok){ const d=this._t(tok); return (d.challenges||[]).map(ch=>this._chl(d,ch)).sort((a,b)=>b.ends_on.localeCompare(a.ends_on)); },
   async tAddChallenge(tok, ch){
@@ -909,6 +921,9 @@ async function showStudentClass(){
   };
   $('#next').onclick = go;
   $('#code').onkeydown = e => { if(e.key==='Enter') go(); };
+  // opened from a class sheet (QR code or link): form and code are already filled in
+  const J = new URLSearchParams(location.search), jc = J.get('join'), jk = J.get('k');
+  if(jc && classes.some(x=>x.id===jc)){ try{ history.replaceState(null, '', location.pathname); }catch(e){} $('#cls').value = jc; if(jk){ $('#code').value = jk; go(); } }
 }
 function showStudentName(c, code, list){
   setView(`<h1>${esc(c.name)}</h1>
@@ -926,7 +941,8 @@ function showStudentName(c, code, list){
   const pinUI = () => {
     const s = list.find(x=>x.id===$('#stu').value);
     $('#pinBox').innerHTML = !s ? '' : s.has_pin
-      ? `<label class="field"><span>Your 4-digit PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>`
+      ? `<label class="field"><span>Your 4-digit PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>
+         <p class="small muted">Forgot your PIN? Ask your PE teacher to reset it, then choose a new one.</p>`
       : `<p class="muted">First time here. Create a 4-digit PIN you will remember.</p>
          <label class="field"><span>New PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>
          <label class="field"><span>Type it again</span><input id="pin2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>`;
@@ -1178,12 +1194,14 @@ async function showStudentHome(){
   const BS = badgeState(), celebrate = celebrationHTML(BS);
   const testDone = !!X.test_label && X.tests.some(t=>t.label===X.test_label);
   const planDone = !!X.plan && S.hist.some(s=>s.plan_id===X.plan.id);
+  const wkN = S.hist.filter(h=>new Date(h.created_at).getTime() >= weekStart(Date.now())).length, goalN = S.cls.weekly_goal || 3;
   $('#home').className = '';
   const tab = celebrate ? 'today' : ['today','progress','class'].includes(ls.get('bwb-tab','today')) ? ls.get('bwb-tab','today') : 'today';
   $('#home').innerHTML = `
     <div class="tabs" role="tablist" aria-label="Sections">${[['today','Today'],['progress','My progress'],['class','Class']].map(([k,l])=>`<button type="button" role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('')}</div>
     <section data-pane="today" ${tab==='today' ? '' : 'hidden'}>
     ${celebrate}
+    <p class="weekline"><b>This week:</b> ${wkN} of ${goalN} workouts${wkN >= goalN ? ' ✓' : ''}${X.plan ? ` · challenge ${planDone ? 'done ✓' : X.plan.due_on ? dueText(X.plan.due_on) : 'to do'}` : ''}</p>
     ${recapHTML(S.hist, S.cls.weekly_goal||3)}
     ${starHTML(X.star)}
     ${X.test_label && !testDone ? `<div class="panel feature"><div class="muted small">Fitness check</div>
@@ -1192,9 +1210,9 @@ async function showStudentHome(){
       <button class="btn" id="fit">Start the fitness check</button></div>` : ''}
     ${X.plan ? planCardHTML(X.plan, planDone, Object.keys(S.A.fams).length>0) : ''}
     <div class="btns">
-      <button class="btn${X.plan?' ghost':''}" id="build">Build my own workout</button>
+      <button class="btn${X.plan && !planDone ? ' ghost' : ''}" id="quick">Quick 8-minute workout</button>
+      <button class="btn ghost" id="build">Build my own workout</button>
       <button class="btn ghost" id="surp">Surprise me</button>
-      <button class="btn ghost" id="quick">Quick 8-minute workout</button>
       <button class="btn ghost" id="lib">All exercises</button>
       <button class="btn ghost" id="tut">How it works</button>
       ${last ? `<button class="btn ghost" id="repeat">Repeat last workout</button>` : ''}
@@ -1227,6 +1245,7 @@ async function showStudentHome(){
   if($('#instBtn')) $('#instBtn').onclick = showInstallHelp;
   if($('#notifBtn')) $('#notifBtn').onclick = () => Notification.requestPermission().then(r=>{ toast(r==='granted' ? 'Alerts are on' : 'Alerts are off'); $('#notifBtn')?.parentElement.remove(); });
   liveStudentStart();
+  if(!celebrate && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
   $('#surp').onclick = () => surpriseWorkout(false);
   $('#quick').onclick = () => surpriseWorkout(true);
   $('#build').onclick = () => { S.sel = []; S.planId = null; showBuilder(); };
@@ -1263,7 +1282,8 @@ function showBuilder(){
       <div class="panel"><label class="field"><span>Title</span><input id="ptitle" maxlength="80" value="${esc(T.plan?.title || 'Challenge workout')}"></label>
         <label class="field" style="margin:0"><span>Message to students (optional)</span><textarea id="pnote" rows="2" maxlength="500" placeholder="e.g. Core focus before our gymnastics unit">${esc(T.plan?.note || '')}</textarea></label>
         <label class="field" style="max-width:260px;margin:14px 0 0"><span>Do it by (optional)</span><input id="pdue" type="date" value="${esc(T.plan?.due_on || '')}"></label>
-        <fieldset class="plain" style="margin-top:14px"><legend>Who gets this challenge</legend>
+        <label class="field" style="max-width:340px;margin:14px 0 0"><span>For</span><select id="pgen"><option value="">Everyone (boys and girls)</option><option value="M">Boys only</option><option value="F">Girls only</option></select></label>
+        <fieldset class="plain" style="margin-top:14px"><legend>Which forms get this challenge</legend>
           ${byYear(S.tclasses||[]).map(([y, cs])=>`<div class="yeargrp">
             ${y===NO_YEAR ? `<div class="small muted" style="margin-bottom:6px">${NO_YEAR}</div>` : `<label class="check"><input type="checkbox" name="pY" value="${esc(y)}"> <b>All of ${esc(y)}</b></label>`}
             <div class="forms">${cs.map(c=>`<label class="check"><input type="checkbox" name="pC" value="${c.id}" data-year="${esc(y)}" ${c.id===T.id?'checked':''}> ${esc(c.name)}</label>`).join('')}</div></div>`).join('')}
@@ -1286,6 +1306,7 @@ function showBuilder(){
     if(sb){ S.settings[sb.dataset.set] = +sb.dataset.val; $$(`[data-set="${sb.dataset.set}"]`).forEach(b=>b.setAttribute('aria-pressed', b===sb)); refreshBuilder(); }
   };
   if(T){
+    $('#pgen').value = T.plan?.only_gender || T.gender || '';
     $('#cancelPlan').onclick = () => T.id ? showClass(T) : showTeacherHome();
     $$('[name="pY"]').forEach(y=>y.onchange=()=>$$('[name="pC"]').filter(c=>c.dataset.year===y.value).forEach(c=>{ c.checked=y.checked; c.disabled=y.checked; }));
   }
@@ -1330,12 +1351,12 @@ async function publishPlan(){
   const {work,rest,rounds} = S.settings;
   const targets = $$('[name="pC"]:checked').map(x=>S.tclasses.find(k=>k.id===x.value)).filter(Boolean);
   if(!targets.length) return toast('Choose at least one class to give the challenge to.');
-  const plan = {title, note:$('#pnote').value.trim(), due_on:$('#pdue').value || '', work_sec:work, rest_sec:rest, rounds, exercises:S.sel.map(x=>({fid:x.fam, lvl:x.lvl, free:!!x.free}))};
+  const plan = {title, note:$('#pnote').value.trim(), due_on:$('#pdue').value || '', only_gender:$('#pgen').value || '', work_sec:work, rest_sec:rest, rounds, exercises:S.sel.map(x=>({fid:x.fam, lvl:x.lvl, free:!!x.free}))};
   $('#start').disabled = true;
   let n = 0;
   try{ for(const k of targets){ await Store.tSetPlan(S.teacher, k.id, plan); n++; } }
   catch(e){ $('#start').disabled = false; return fail(`Published to ${n} of ${targets.length} classes, then stopped`, e); }
-  toast(`Challenge published to ${n===1 ? targets[0].name : n+' classes'}`); S.sel = [];
+  toast(`Challenge published to ${n===1 ? targets[0].name : n+' classes'}`); S.sel = []; CK.set('plan');
   c.id ? showClass(S.tclasses.find(k=>k.id===c.id) || c) : showTeacherHome();
 }
 
@@ -1699,7 +1720,8 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
-    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="board">Results board</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button></p>
+    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="board">Results board</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">How it works (teachers)</button></p>
+    <div id="ck"></div>
     <div class="panel"><div class="h3">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
       <label class="field"><span>Year group</span><input id="cy" list="yearList" placeholder="e.g. Year 10" autocomplete="off"></label></div>
@@ -1733,6 +1755,7 @@ async function showTeacherHome(){
   $('#all').onclick = downloadAll;
   $('#imp').onclick = () => showImport();
   $('#lib').onclick = showLibrary;
+  $('#tguide').onclick = showTeacherGuide;
   $('#board').onclick = showBoard;
   $('#bkX').onclick = e => downloadBackup('xlsx', e.target);
   $('#bkJ').onclick = e => downloadBackup('json', e.target);
@@ -1752,13 +1775,23 @@ async function showTeacherHome(){
   S.tclasses = classes;
   $('#yearList').innerHTML = yearOptions(classes);
   const groups = byYear(classes), plain = groups.length===1 && groups[0][0]===NO_YEAR;
+  let MINE = new Set(ls.get('bwb-mine', []));
   const card = c => `<div class="panel ccard">
     <div><b>${esc(c.name)}</b><div class="muted">${c.students} student${+c.students===1?'':'s'}, ${c.workouts} workout${+c.workouts===1?'':'s'}. Code: ${esc(c.code)}. Goal: ${c.weekly_goal} per week</div></div>
-    <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`;
-  $('#list').innerHTML = !classes.length ? '<p>No classes yet. Add your first class above.</p>'
-    : groups.map(([y, cs])=>`${plain ? '' : `<div class="yearhead">${esc(y)}</div>`}<div class="clist">${cs.map(card).join('')}</div>`).join('');
-  $$('[data-open]').forEach(b=>b.onclick=()=>showClass(classes.find(c=>c.id===b.dataset.open)));
-  $$('[data-dl]').forEach(b=>b.onclick=()=>downloadClass(classes.find(c=>c.id===b.dataset.dl)));
+    <div class="actions"><button class="btn small" data-open="${c.id}">Open</button><button class="btn ghost small" data-sheet="${c.id}">Class sheet</button><button class="btn ghost small" data-star="${c.id}" aria-pressed="${MINE.has(c.id)}">${MINE.has(c.id) ? '★ Mine' : '☆ Mine'}</button><button class="btn ghost small" data-dl="${c.id}">Download (.xlsx)</button></div></div>`;
+  // "My classes": the forms this teacher ticked on this device come first
+  const drawList = () => {
+    const mine = classes.filter(c=>MINE.has(c.id)).sort(byName), rest = groups.map(([y, cs])=>[y, cs.filter(c=>!MINE.has(c.id))]).filter(([y, cs])=>cs.length);
+    const head = t => `<div class="yearhead">${esc(t)}</div>`;
+    $('#list').innerHTML = !classes.length ? '<p>No classes yet. Add your first class above.</p>'
+      : (mine.length ? head('My classes') + `<div class="clist">${mine.map(card).join('')}</div>` : '')
+        + rest.map(([y, cs])=>`${plain && !mine.length ? '' : head(plain ? 'Other classes' : y)}<div class="clist">${cs.map(card).join('')}</div>`).join('');
+    $$('[data-open]').forEach(b=>b.onclick=()=>showClass(classes.find(c=>c.id===b.dataset.open)));
+    $$('[data-dl]').forEach(b=>b.onclick=()=>downloadClass(classes.find(c=>c.id===b.dataset.dl)));
+    $$('[data-sheet]').forEach(b=>b.onclick=()=>showClassSheet(classes.find(c=>c.id===b.dataset.sheet), showTeacherHome));
+    $$('[data-star]').forEach(b=>b.onclick=()=>{ const id = b.dataset.star; MINE.has(id) ? MINE.delete(id) : MINE.add(id); ls.set('bwb-mine', [...MINE]); drawList(); });
+  };
+  drawList(); renderCk(classes);
   loadChallenges(classes);
 }
 async function loadChallenges(classes){
@@ -1818,7 +1851,7 @@ async function showClass(c){
   S.planFor = null;
   setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
     <h1>${esc(c.name)}</h1>${c.year_group ? `<p class="muted" style="margin-top:-.3em">${esc(c.year_group)}</p>` : ''}
-    <p><button class="btn" id="dl">Download ${esc(c.name)} (.xlsx)</button></p>
+    <p class="btns"><button class="btn" id="dl">Download ${esc(c.name)} (.xlsx)</button><button class="btn ghost" id="sheet">Class sheet (QR code)</button></p>
     <h2>Challenge workout</h2><div id="plan" class="muted">Loading…</div>
     <h2>Star of the week</h2><div id="starp" class="muted">Loading…</div>
     <h2>Fitness check</h2><div id="fitp" class="muted">Loading…</div>
@@ -1837,6 +1870,7 @@ async function showClass(c){
     <p style="margin-top:24px"><button class="btn danger small" id="del">Delete class and all its data</button></p>`);
   $('#back').onclick = showTeacherHome;
   $('#dl').onclick = () => downloadClass(c);
+  $('#sheet').onclick = () => showClassSheet(c, () => showClass(c));
   $('#save').onclick = async () => {
     const name=$('#ename').value.trim(), code=$('#ecode').value.trim(), goal=+$('#egoal').value, year=normYear($('#eyear').value);
     if(!name) return toast('The class needs a name.');
@@ -1856,37 +1890,46 @@ async function showClass(c){
     catch(e){ if(isExpired(e)) return logout(e.message); $('#studs').textContent = $('#plan').textContent = $('#fitp').textContent = 'Could not load: '+e.message; return; }
     const goal = c.weekly_goal||3;
 
-    // Workout of the week
-    const P = X.plan;
-    const doneSet = new Set(P ? ss.filter(s=>s.plan_id===P.id && s.student_id).map(s=>s.student_id) : []), doneBy = doneSet.size;
-    $('#plan').className = '';
-    $('#plan').innerHTML = P ? `<div class="panel"><div class="h3" style="margin:0 0 4px">${esc(P.title)}</div>${P.note ? `<p style="margin:0 0 6px">${esc(P.note)}</p>` : ''}
-        <p class="muted small" style="margin:0 0 8px">Set on ${fmtDate(P.created_at)}${P.due_on ? `, <b>due ${fmtDay(P.due_on)}</b>` : ''}. ${P.exercises.length} exercises, ${P.rounds} round${P.rounds===1?'':'s'}, ${P.work_sec}s work, ${P.rest_sec}s rest. Done by <b>${doneBy} of ${st.length}</b> students.</p>
-        ${deadlineHTML(st, ss, P)}
-        ${P && st.length > doneBy ? `<details style="margin:0 0 10px"><summary class="small">${duePassed(P.due_on) ? '<b>Missed</b>' : 'Not done yet'} (${st.length-doneBy})</summary><p class="small" style="max-width:none">${st.filter(s=>!doneSet.has(s.id)).map(s=>esc(s.name)).join(', ')}</p><p style="margin:0"><button class="btn ghost small" data-copy="${esc(st.filter(s=>!doneSet.has(s.id)).map(s=>s.name).join('\n'))}">Copy names</button></p></details>` : ''}
+    // Challenge workouts: one for everyone, and optionally one for boys only and one for girls only
+    const PL = X.plans || (X.plan ? [X.plan] : []);
+    const own = new Set(PL.filter(p=>p.only_gender).map(p=>p.only_gender));
+    const studsOf = p => p.only_gender ? st.filter(s=>s.gender===p.only_gender) : st.filter(s=>!own.has(s.gender));
+    const forWho = p => p.only_gender==='M' ? 'Boys only' : p.only_gender==='F' ? 'Girls only' : own.size ? 'Everyone else' : '';
+    const planPanel = (P, i) => {
+      const stu = studsOf(P), doneSet = new Set(ss.filter(s=>s.plan_id===P.id && s.student_id).map(s=>s.student_id)), left = stu.filter(s=>!doneSet.has(s.id));
+      return `<div class="panel" ${i ? 'style="margin-top:12px"' : ''}><div class="h3" style="margin:0 0 4px">${esc(P.title)}${forWho(P) ? ` <span class="tag">${forWho(P)}</span>` : ''}</div>${P.note ? `<p style="margin:0 0 6px">${esc(P.note)}</p>` : ''}
+        <p class="muted small" style="margin:0 0 8px">Set on ${fmtDate(P.created_at)}${P.due_on ? `, <b>due ${fmtDay(P.due_on)}</b>` : ''}. ${P.exercises.length} exercises, ${P.rounds} round${P.rounds===1?'':'s'}, ${P.work_sec}s work, ${P.rest_sec}s rest. Done by <b>${stu.length-left.length} of ${stu.length}</b> students.</p>
+        ${deadlineHTML(stu, ss, P)}
+        ${left.length ? `<details style="margin:0 0 10px"><summary class="small">${duePassed(P.due_on) ? '<b>Missed</b>' : 'Not done yet'} (${left.length})</summary><p class="small" style="max-width:none">${left.map(s=>esc(s.name)).join(', ')}</p><p style="margin:0"><button class="btn ghost small" data-copy="${esc(left.map(s=>s.name).join('\n'))}">Copy names</button></p></details>` : ''}
         <p class="small" style="margin:0 0 12px;max-width:none">${P.exercises.map(x=>{ const l=FAM[x.fid]?.levels[x.lvl-1]; return !l ? '' : x.free ? `<span style="white-space:nowrap"><span class="lvtag" style="--lc:var(--muted);--lon:var(--paper)">Any</span> ${esc(FAM[x.fid].name)} <span class="muted">(student picks level)</span></span>` : `<span style="white-space:nowrap"><span class="lvtag" style="${lc(x.lvl)}">L${x.lvl}</span> ${esc(l.n)}</span>`; }).join(' &nbsp; ')}</p>
-        <div class="btns"><button class="btn small" id="liveBtn">Train together (live)</button><button class="btn small" id="newPlan">Change it</button><button class="btn ghost small" id="clearPlan">Remove</button></div></div>`
-      : `<div class="panel"><p style="margin:0 0 10px">No challenge workout set. Pick 8 to 12 exercises and students see it at the top of their page with the due date, ready to start.</p><button class="btn small" id="newPlan">Set a challenge workout</button></div>`;
-    if(P) $('#plan').insertAdjacentHTML('beforeend', planResultsHTML(st, ss, P));
-    if($('#liveBtn')) $('#liveBtn').onclick = () => showLiveTeacher(c);
+        <div class="btns"><button class="btn small" data-live="${P.only_gender || ''}">Train together (live)</button><button class="btn small" data-newplan="${P.id}">Change it</button><button class="btn ghost small" data-clear="${P.only_gender || ''}">Remove</button></div></div>`
+        + planResultsHTML(stu, ss, P);
+    };
+    $('#plan').className = '';
+    $('#plan').innerHTML = PL.length
+      ? PL.map(planPanel).join('') + `<p style="margin:12px 0 0"><button class="btn ghost small" data-newplan="new">Set another challenge, for example for boys only</button></p>`
+      : `<div class="panel"><p style="margin:0 0 10px">No challenge workout set. Pick 8 to 12 exercises and students see it at the top of their page with the due date, ready to start.</p><button class="btn small" data-newplan="new">Set a challenge workout</button></div>`;
+    $$('[data-live]').forEach(b=>b.onclick = () => showLiveTeacher(c, b.dataset.live));
     const OLD = X.old_plans || [];
     if(OLD.length){
       $('#plan').insertAdjacentHTML('beforeend', `<details class="panel" style="margin-top:12px"><summary>Previous challenge workouts (${OLD.length})</summary>
         ${OLD.map(p=>{ const done = new Set(ss.filter(x=>x.plan_id===p.id && x.student_id).map(x=>x.student_id)).size;
-          return `<div class="between" style="padding:8px 0;border-top:1px solid var(--line)"><div><b>${esc(p.title)}</b><div class="muted small">Set ${fmtDate(p.created_at)}${p.due_on ? `, due ${fmtDay(p.due_on)}` : ''}. Done by ${done} of ${st.length}.</div></div>
+          return `<div class="between" style="padding:8px 0;border-top:1px solid var(--line)"><div><b>${esc(p.title)}</b>${p.only_gender ? ` <span class="tag">${p.only_gender==='M' ? 'Boys only' : 'Girls only'}</span>` : ''}<div class="muted small">Set ${fmtDate(p.created_at)}${p.due_on ? `, due ${fmtDay(p.due_on)}` : ''}. Done by ${done} of ${st.length}.</div></div>
             <div class="actions"><button class="btn ghost small" data-oldres="${p.id}">Results</button><button class="btn ghost small" data-reuse="${p.id}">Use again</button></div></div><div id="oldres-${p.id}"></div>`; }).join('')}</details>`);
       $$('[data-oldres]').forEach(b=>b.onclick=()=>{ const el = $('#oldres-'+b.dataset.oldres); el.innerHTML = el.innerHTML ? '' : planResultsHTML(st, ss, OLD.find(p=>p.id===b.dataset.oldres)); });
       $$('[data-reuse]').forEach(b=>b.onclick=()=>{ const p = OLD.find(x=>x.id===b.dataset.reuse);
         S.planFor = {...c, plan:{...p, due_on:''}}; S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl, free:!!x.free}));
         S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds}; showBuilder(); });
     }
-    $('#newPlan').onclick = () => {
-      S.planFor = {...c, plan:P};
+    $$('[data-newplan]').forEach(b=>b.onclick = () => {
+      const P = PL.find(p=>p.id===b.dataset.newplan) || null;
+      // a new challenge next to an existing one starts as boys only (or girls only), so it does not replace the class-wide one
+      S.planFor = {...c, plan:P, gender: P ? null : PL.some(p=>!p.only_gender) ? (own.has('M') ? 'F' : 'M') : ''};
       S.sel = P ? P.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl, free:!!x.free})) : [];
       S.settings = P ? {work:P.work_sec, rest:P.rest_sec, rounds:P.rounds} : {work:40, rest:20, rounds:2};
       showBuilder();
-    };
-    if($('#clearPlan')) $('#clearPlan').onclick = async () => { if(!confirm('Remove the workout of the week?')) return; try{ await Store.tClearPlan(S.teacher, c.id); load(); }catch(e){ fail('Could not remove', e); } };
+    });
+    $$('[data-clear]').forEach(b=>b.onclick = async () => { if(!confirm('Remove this challenge workout?')) return; try{ await Store.tClearPlan(S.teacher, c.id, b.dataset.clear); load(); }catch(e){ fail('Could not remove', e); } });
 
     // Star of the week
     const ST = X.star;
@@ -2277,9 +2320,9 @@ function boardRows(){
   return students.filter(s=>byId.has(s.class_id) && (!f.q || norm(s.name).includes(norm(f.q)))
       && (!f.gender || (f.gender==='-' ? !s.gender : s.gender===f.gender))).map(s=>{
     const c = byId.get(s.class_id), onPlan = f.period==='plan', P = onPlan ? null : s[f.period==='4w' ? '4w' : f.period];
-    const n = onPlan ? (s.best != null ? 1 : 0) : P.n, due = plans[c.id]?.due_on;
-    const cst = !plans[c.id] ? 'none' : s.best != null ? (isLate(s.first_at, due) ? 'late' : 'ontime') : duePassed(due) ? 'missed' : 'todo';
-    return {s, c, cst, hasPlan:!!plans[c.id], best:s.best, bestAt:s.best_at, n, points:onPlan ? (s.best || 0) : P.points,
+    const n = onPlan ? (s.best != null ? 1 : 0) : P.n, due = s.due_on;
+    const cst = !s.plan_id ? 'none' : s.best != null ? (isLate(s.first_at, due) ? 'late' : 'ontime') : duePassed(due) ? 'missed' : 'todo';
+    return {s, c, cst, hasPlan:!!s.plan_id, best:s.best, bestAt:s.best_at, n, points:onPlan ? (s.best || 0) : P.points,
       flag:onPlan ? s.all.flag : P.flag, last:s.last || null, lvl:n && s.lvl != null ? s.lvl : '', total:s.all.points};
   }).filter(r=>(!f.none || !r.n) && (!f.st || r.cst===f.st || (f.st==='not' && (r.cst==='todo' || r.cst==='missed'))))
     .sort((a,b)=>b.points-a.points || b.n-a.n || a.s.name.localeCompare(b.s.name));
@@ -2547,10 +2590,11 @@ const serverOffset = st => new Date(st.server_now).getTime() - Date.now();
 const liveStartLocal = st => new Date(st.start_at).getTime() - serverOffset(st);
 
 function liveTeacherStop(){ if(LIVE?.timer) clearInterval(LIVE.timer); LIVE = null; }
-function showLiveTeacher(c){
+function showLiveTeacher(c, g){
+  g = g || '';
   liveTeacherStop();
   setView(`<p><button class="btn ghost small" id="back">Back to ${esc(c.name)}</button></p>
-    <h1>Train together</h1>
+    <h1>Train together${g ? (g==='M' ? ' (boys)' : ' (girls)') : ''}</h1>
     <p class="muted">${esc(c.name)} does the challenge workout at the same time as you, for example during a video call. Each student taps <b>I'm ready</b> on their own page. The workout starts for everyone when the whole class is ready, or when you press <b>Start now</b>. Students who are late can still join, in step with the others.</p>
     <p class="small">Ask students to open the app now: the alert only reaches students who have it open.</p>
     <div class="panel setrow" id="lvOpts">${wcSeg('warm','Warm-up')}${wcSeg('cool','Cool-down')}</div>
@@ -2562,8 +2606,9 @@ function showLiveTeacher(c){
   $('#lvOpen').onclick = async () => {
     const pr = wcPref();
     try{
-      const st = await Store.tLiveStart(S.teacher, c.id, !!pr.warm, !!pr.cool);
-      LIVE = {c, id:st.id, studs:await Store.tStudents(S.teacher, c.id)};
+      const st = await Store.tLiveStart(S.teacher, c.id, !!pr.warm, !!pr.cool, g);
+      CK.set('live');
+      LIVE = {c, id:st.id, studs:(await Store.tStudents(S.teacher, c.id)).filter(x=>!g || x.gender===g)};
       $('#lvOpen').remove(); $('#lvOpts').remove();
       liveTeacherRender(st);
       LIVE.timer = setInterval(async () => { if(!LIVE) return; try{ liveTeacherRender(await Store.tLiveState(S.teacher, LIVE.id)); }catch(e){} }, 2000);
@@ -2642,6 +2687,80 @@ function liveJoin(st){
   startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st)});
 }
 
+/* ===== Getting started, class sheet and teacher guide ===== */
+// Small to-do list on the teacher home page, remembered on this device
+const CK = { get: () => ls.get('bwb-ck', {}), set(k){ const o = this.get(); if(!o[k]){ o[k] = 1; ls.set('bwb-ck', o); } } };
+function renderCk(classes){
+  const box = $('#ck'); if(!box) return;
+  const o = CK.get();
+  if(o.hide){ box.innerHTML = `<p class="small"><button type="button" class="link" id="ckShow">Show the getting-started steps</button></p>`; $('#ckShow').onclick = () => { ls.set('bwb-ck', {...o, hide:0}); renderCk(classes); }; return; }
+  const steps = [
+    ['Add your classes and students', classes.some(c=>+c.students > 0), 'Import a file', () => $('#imp').click()],
+    ['Set a challenge workout', !!o.plan, 'Set one', () => $('#newPlanAll').click()],
+    ['Give students their class code', !!o.code, 'Open a class sheet', () => classes[0] ? showClassSheet(classes[0], showTeacherHome) : toast('Add a class first.')],
+    ['Try a live session', !!o.live, 'How it works', showTeacherGuide]];
+  const done = steps.filter(s=>s[1]).length, next = steps.findIndex(s=>!s[1]);
+  if(next < 0){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="panel ck"><div class="between"><div class="h3" style="margin:0">Getting started: ${done} of ${steps.length} done</div><button type="button" class="link small" id="ckHide">Hide</button></div>
+    <ul>${steps.map((s, i)=>`<li class="${s[1] ? 'on' : ''}">${s[1] ? '✓' : '○'} ${s[0]}${i===next ? ` <button type="button" class="btn small" id="ckGo">${s[2]}</button>` : ''}</li>`).join('')}</ul></div>`;
+  $('#ckGo').onclick = steps[next][3];
+  $('#ckHide').onclick = () => { ls.set('bwb-ck', {...CK.get(), hide:1}); renderCk(classes); };
+}
+
+// One printable page per form: class code, QR code and the three login steps
+function showClassSheet(c, back){
+  CK.set('code');
+  const link = `${location.href.split('#')[0].split('?')[0]}?join=${encodeURIComponent(c.id)}&k=${encodeURIComponent(c.code)}`;
+  let qr = ''; try{ const q = qrcode(0, 'M'); q.addData(link); q.make(); qr = q.createSvgTag(5, 2); }catch(e){}
+  setView(`<p class="noprint"><button class="btn ghost small" id="back">Back</button> <button class="btn small" id="print">Print or save as PDF</button></p>
+    <div class="sheet panel"><div class="p-phase">Bodyweight Builder</div><h1 style="margin:.1em 0">${esc(c.name)}: join the PE app</h1>
+      <div class="sheet-grid">
+        <div class="sheet-qr">${qr || '<p class="muted">The QR code could not load. Use the link below.</p>'}</div>
+        <ol class="sheet-steps"><li><b>Scan the code</b> with your phone camera, or open the link below.</li>
+          <li><b>Choose your name</b> in the list.</li>
+          <li><b>Create a 4-digit PIN</b> you will remember. Next time, just choose your name and type your PIN.</li></ol></div>
+      <p style="margin:14px 0 4px">Class: <b>${esc(c.name)}</b> &nbsp; Class code: <b style="font-size:1.3rem">${esc(c.code)}</b></p>
+      <p class="small" style="word-break:break-all">${esc(link)}</p>
+      <p class="small muted">Forgot your PIN? Ask your PE teacher to reset it.</p></div>`);
+  $('#back').onclick = back || showTeacherHome;
+  $('#print').onclick = () => window.print();
+}
+
+const TEACHER_GUIDE = [
+  ['Add your classes', 'On the Classes page, add a form such as 10C with a class code, or press <b>Import students from a file</b> and upload your Excel, LibreOffice or CSV list. The import creates the forms for you.'],
+  ['Give students their class code', 'Open a class and press <b>Class sheet (QR code)</b>. Print it, or show it on the screen. Students scan the code, choose their name and create a 4-digit PIN. If a student forgets their PIN, open the class and reset it.'],
+  ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Pick 8 to 12 exercises, a due date, and tick the forms or whole year groups that get it. Choose <b>Boys only</b> or <b>Girls only</b> when the groups are split that way. For each exercise, fix the level or let students pick theirs.'],
+  ['Boys and girls taught apart', 'Students always stay in their form. To teach boys or girls from several forms together, publish one challenge to those forms with <b>For: Boys only</b> (or Girls only). Those students see that challenge, and the rest of the form sees the other one.'],
+  ['Check who did it', 'Each class page shows who did the challenge on time, late or not at all, with their points. The <b>Results board</b> lets you filter by year group, form, gender and challenge status, copy the names of students who missed it, and download Excel.'],
+  ['Train together live', 'On the class page, press <b>Train together (live)</b> during a video call. Students tap <b>I\'m ready</b> on their own page, and the workout starts for everyone at the same moment, when all are ready or when you press <b>Start now</b>. You never log into a student\'s account. Ask students to open the app first.'],
+  ['My classes', 'Press <b>☆ Mine</b> on the forms you teach. They move to the top of your list on this device.'],
+  ['Backups and next year', 'Download a backup from time to time. At the end of the school year, <b>New school year</b> moves every class up one year and keeps students\' PINs.']];
+function showTeacherGuide(){
+  setView(`<p class="noprint"><button class="btn ghost small" id="back">Back</button> <button class="btn small" id="print">Print this page</button></p>
+    <h1>How it works for teachers</h1>
+    <p class="muted">Eight short steps. Every teacher uses the same teacher PIN and sees every class.</p>
+    <div class="clist tut">${TEACHER_GUIDE.map(([t, d], i)=>`<div class="panel"><div class="step">${i+1}. ${t}</div><p style="margin:4px 0 0;max-width:none">${d}</p></div>`).join('')}</div>`);
+  $('#back').onclick = showTeacherHome;
+  $('#print').onclick = () => window.print();
+}
+
+// First visit of a student: three short cards, shown once on this device
+function showTour(){
+  const steps = [['Your challenge', 'Your teacher\'s challenge workout is at the top of the Today tab, with its due date. Tap <b>See the workout</b>, then <b>Start</b>.'],
+    ['The timer', 'Follow the timer. Use the rest time to type your reps. Exercises cannot be skipped, so every one counts for your points.'],
+    ['Your points', 'Every rep and every second held earns points, more at higher levels. <b>My progress</b> shows your rank and badges, and <b>Class</b> shows the leaderboard.']];
+  let i = 0;
+  const ov = document.createElement('div'); ov.id = 'tourov'; ov.className = 'liveov'; ov.setAttribute('role', 'dialog'); document.body.appendChild(ov);
+  const end = () => { ls.set('bwb-tour-' + S.student.id, 1); ov.remove(); };
+  const draw = () => {
+    ov.innerHTML = `<div class="liveov-in"><div class="p-phase">Welcome · ${i+1} of ${steps.length}</div><h2>${steps[i][0]}</h2><p>${steps[i][1]}</p>
+      <p><button class="btn" id="tNext">${i < steps.length - 1 ? 'Next' : 'Got it'}</button></p><p><button class="btn ghost small" id="tSkip">Skip</button></p></div>`;
+    $('#tNext').onclick = () => { if(++i < steps.length) draw(); else end(); };
+    $('#tSkip').onclick = end;
+  };
+  draw();
+}
+
 /* ===== Install as an app, open offline ===== */
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
 let installEvt = null;
@@ -2671,6 +2790,7 @@ function showInstallHelp(){
   loadDemos();
   const t = tabStore.get('bwb-teacher');
   if(t){ S.teacher = t; return showTeacherHome(); }
+  if(new URLSearchParams(location.search).get('join')) return showStudentClass();   // opened from a class sheet: log in to that form, even on a shared device
   const a = auth.get();
   if(a?.token){
     S.token=a.token; S.student=a.student; S.cls=a.cls;
