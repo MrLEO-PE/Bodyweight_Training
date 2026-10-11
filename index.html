@@ -552,21 +552,24 @@ function makeCloud(){
   };
 }
 const Local = {
-  _load(){ const d = ls.get('bwb-data', null) || {}; return {classes:[],students:[],sessions:[],teacher_pin:'0000',...d}; },
+  _load(){ const d = {classes:[],students:[],sessions:[],teacher_pin:'0000',...(ls.get('bwb-data', null) || {})};
+    d.classes.forEach(c=>{ if(!d.students.some(s=>s.class_id===c.id && s.is_teacher)) d.students.push({id:'teacher-'+c.id, class_id:c.id, name:'TEACHER', pin:null, is_teacher:true}); });   // the TEACHER account of every class
+    return d; },
   _save(d){ try{ localStorage.setItem('bwb-data', JSON.stringify(d)); }catch(e){ throw new Error('Could not save on this device.'); } },
-  _me(d, s){ const c=d.classes.find(x=>x.id===s.class_id); return {student:{id:s.id,name:s.name}, cls:{id:c.id,name:c.name,weekly_goal:c.weekly_goal||3}}; },
+  _me(d, s){ const c=d.classes.find(x=>x.id===s.class_id); return {student:{id:s.id,name:s.name,is_teacher:!!s.is_teacher}, cls:{id:c.id,name:c.name,weekly_goal:c.weekly_goal||3}}; },
   _stu(tok){ const d=this._load(), s=d.students.find(x=>'local-s:'+x.id===tok); if(!s) throw new Error('Your session has expired. Please log in again.'); return [d,s]; },
   _t(tok){ if(tok!=='local-t') throw new Error('Your teacher session has expired. Please log in again.'); return this._load(); },
   async listClasses(){ return this._load().classes.map(({id,name,year_group})=>({id,name,year_group:year_group||null})).sort(byName); },
   async listStudents(cid, code){
     const d=this._load(), c=d.classes.find(x=>x.id===cid);
     if(!c || norm(c.code)!==norm(code)) throw new Error('That class code is not right. Check with your teacher.');
-    return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin})).sort(byName);
+    return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin || !!s.is_teacher, is_teacher:!!s.is_teacher})).sort((a,b)=>(a.is_teacher?1:0)-(b.is_teacher?1:0) || byName(a,b));
   },
   async studentLogin(id, code, pin){
     const d=this._load(), s=d.students.find(x=>x.id===id);
     if(!s) throw new Error('Name not found. Ask your teacher.');
     if(norm(d.classes.find(x=>x.id===s.class_id)?.code)!==norm(code)) throw new Error('That class code is not right. Check with your teacher.');
+    if(s.is_teacher){ if(pin!==d.teacher_pin) throw new Error('Wrong teacher PIN.'); return {token:'local-s:'+s.id, ...this._me(d,s)}; }
     if(!/^\d{4}$/.test(pin)) throw new Error('Your PIN must be 4 digits.');
     if(s.pin && s.pin!==pin) throw new Error('Wrong PIN. Ask your teacher to reset it if you forgot.');
     if(!s.pin){ s.pin=pin; this._save(d); }
@@ -577,17 +580,18 @@ const Local = {
   async mySessions(tok){ const [d,s]=this._stu(tok); return d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst); },
   async addSession(tok, p){
     const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id);
+    if(s.is_teacher) return null;   // TEACHER workouts are never saved
     const {done_at, ...rest} = p;
     const row = {...rest, ...totals(p.exercises), id:uid(), class_id:c.id, class_name:c.name, student_id:s.id, student_name:s.name, created_at:done_at||new Date().toISOString()};
     d.sessions.push(row); this._save(d); return row;
   },
   async teacherLogin(pin){ if(pin!==this._load().teacher_pin) throw new Error('Wrong teacher PIN.'); return {token:'local-t'}; },
   async tChangePin(tok, o, n){ const d=this._t(tok); if(o!==d.teacher_pin) throw new Error('Your current PIN is not right.'); if(n.length<6) throw new Error('The new PIN must be at least 6 characters.'); d.teacher_pin=n; this._save(d); },
-  async tClasses(tok){ const d=this._t(tok); return d.classes.map(c=>({...c, weekly_goal:c.weekly_goal||3, students:d.students.filter(s=>s.class_id===c.id).length, workouts:d.sessions.filter(s=>s.class_id===c.id).length})).sort(byName); },
+  async tClasses(tok){ const d=this._t(tok); return d.classes.map(c=>({...c, weekly_goal:c.weekly_goal||3, students:d.students.filter(s=>s.class_id===c.id && !s.is_teacher).length, workouts:d.sessions.filter(s=>s.class_id===c.id).length})).sort(byName); },
   async tAddClass(tok, name, code, goal, year){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,year_group:normYear(year)||null,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
   async tUpdateClass(tok, id, name, code, goal, year){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(!name) throw new Error('The class needs a name.'); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.name=name; c.code=code; c.weekly_goal=goal; c.year_group=normYear(year)||null; } this._save(d); },
   async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); d.plans=(d.plans||[]).filter(p=>p.class_id!==id); d.tests=(d.tests||[]).filter(t=>t.class_id!==id); this._save(d); },
-  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin,gender:s.gender||null})).sort(byName); },
+  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid && !s.is_teacher).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin,gender:s.gender||null})).sort(byName); },
   async tAddStudents(tok, cid, names, genders){
     const d=this._t(tok), have=new Set(d.students.filter(s=>s.class_id===cid).map(s=>norm(s.name))); let n=0;
     names.forEach((name, i)=>{ const g = normGender(genders?.[i]);
@@ -597,7 +601,7 @@ const Local = {
   },
   async tResetPins(tok, ids){ const d=this._t(tok); let n=0; d.students.forEach(s=>{ if(ids.includes(s.id)){ s.pin=null; n++; } }); this._save(d); return n; },
   async tResetPin(tok, id){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.pin=null; this._save(d); },
-  async tAllStudents(tok){ return this._t(tok).students.map(s=>({id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null})); },
+  async tAllStudents(tok){ return this._t(tok).students.filter(s=>!s.is_teacher).map(s=>({id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null})); },
   async tSetGender(tok, id, g){ const d=this._t(tok), s=d.students.find(x=>x.id===id); if(s) s.gender = normGender(g); this._save(d); },
   async tMoveStudents(tok, to, ids){
     const d=this._t(tok), c=d.classes.find(x=>x.id===to); if(!c) throw new Error('Class not found.');
@@ -620,7 +624,7 @@ const Local = {
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
   _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id);
     return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at,
-      plan:p ? {...p} : null, only_gender:L.only_gender||null, size:d.students.filter(s=>s.class_id===L.class_id && (!L.only_gender || s.gender===L.only_gender)).length, ready:[...L.ready]}; },
+      plan:p ? {...p} : null, only_gender:L.only_gender||null, size:d.students.filter(s=>s.class_id===L.class_id && !s.is_teacher && (!L.only_gender || s.gender===L.only_gender)).length, ready:L.ready.filter(id=>!d.students.find(s=>s.id===id)?.is_teacher)}; },
   _liveGo(L){ if(L.status==='waiting'){ L.status='started'; L.start_at=new Date(Date.now()+5000).toISOString(); } },
   async tLiveStart(tok, cid, w, c, g){ g = g || null; const d=this._t(tok), P=this._plan(d,cid,g); if(!P) throw new Error('Set a challenge workout for this class first.');
     (d.live ||= []).forEach(x=>{ if(x.class_id===cid && x.status!=='ended') x.status='ended'; });
@@ -629,9 +633,9 @@ const Local = {
   async tLiveState(tok, id){ const d=this._t(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
   async tLiveGo(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async tLiveEnd(tok, id){ const d=this._t(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
-  async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.class_id===s.class_id && x.status!=='ended' && (!x.only_gender || x.only_gender===s.gender) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
+  async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.class_id===s.class_id && x.status!=='ended' && (!x.only_gender || x.only_gender===s.gender || s.is_teacher) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
     return L ? {...this._liveState(d,L), me_ready:L.ready.includes(s.id)} : null; },
-  async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && x.class_id===s.class_id && (!x.only_gender || x.only_gender===s.gender));
+  async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && x.class_id===s.class_id && (!x.only_gender || x.only_gender===s.gender || s.is_teacher));
     if(!L) throw new Error('This live session has ended.');
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
     if(L.ready.length >= this._liveState(d,L).size) this._liveGo(L);
@@ -645,14 +649,14 @@ const Local = {
     const d=this._t(tok), wk=weekStart(Date.now()), w4=Date.now()-28*864e5, at=x=>new Date(x.created_at).getTime(), plans={};
     d.classes.forEach(c=>{ const p=this._plan(d,c.id); if(p) plans[c.id]={id:p.id, title:p.title, due_on:p.due_on||null}; });
     const agg = list => ({n:list.length, points:sum(list.map(pointsOf)), flag:list.map(x=>flagsOf(x)[0]).find(Boolean) || null});
-    const students = d.students.map(s=>{ const mine=d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst), P=this._plan(d,s.class_id,s.gender||null), b=P ? bestOnPlan(mine,P).get(s.id) : null;
+    const students = d.students.filter(s=>!s.is_teacher).map(s=>{ const mine=d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst), P=this._plan(d,s.class_id,s.gender||null), b=P ? bestOnPlan(mine,P).get(s.id) : null;
       return {id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null, week:agg(mine.filter(x=>at(x)>=wk)), '4w':agg(mine.filter(x=>at(x)>=w4)), all:agg(mine),
         last:mine[0]?.created_at||null, lvl:mine[0] ? avgLvl(mine[0]) : null, plan_id:P?.id||null, due_on:P?.due_on||null, best:b ? pointsOf(b) : null, best_at:b?.created_at||null, first_at:P ? (firstOnPlan(mine, P).get(s.id) || null) : null}; });
     return {students, plans};
   },
   async classBoard(tok){
     const [d,s] = this._stu(tok), cid = s.class_id, plan = this._plan(d, cid, s.gender||null), wk = weekStart(Date.now());
-    const studs = d.students.filter(x=>x.class_id===cid), rank = (a,b)=>b.points-a.points || a.name.localeCompare(b.name);
+    const studs = d.students.filter(x=>x.class_id===cid && !x.is_teacher), rank = (a,b)=>b.points-a.points || a.name.localeCompare(b.name);
     const lwD = new Date(wk); lwD.setDate(lwD.getDate()-7); const lw = lwD.getTime();
     const at = x => new Date(x.created_at).getTime();
     const week = studs.map(st=>{ const mine = d.sessions.filter(x=>x.student_id===st.id && x.class_id===cid), ss = mine.filter(x=>at(x)>=wk);
@@ -661,7 +665,7 @@ const Local = {
     const planB = studs.filter(st=>best.has(st.id)).map(st=>({id:st.id, name:st.name, points:pointsOf(best.get(st.id))})).sort(rank);
     const me = d.classes.find(c=>c.id===cid);
     const cup = !me?.year_group ? [] : d.classes.filter(k=>norm(k.year_group)===norm(me.year_group)).sort(byName).map(k=>{ const ss = d.sessions.filter(x=>x.class_id===k.id);
-      return {id:k.id, name:k.name, size:d.students.filter(x=>x.class_id===k.id).length, week:sum(ss.filter(x=>at(x)>=wk).map(pointsOf)), last:sum(ss.filter(x=>at(x)>=lw && at(x)<wk).map(pointsOf))}; });
+      return {id:k.id, name:k.name, size:d.students.filter(x=>x.class_id===k.id && !x.is_teacher).length, week:sum(ss.filter(x=>at(x)>=wk).map(pointsOf)), last:sum(ss.filter(x=>at(x)>=lw && at(x)<wk).map(pointsOf))}; });
     return {class_size:studs.length, plan:planB, week, cup};
   },
   _star(d, cid){ const c = d.classes.find(x=>x.id===cid), st = c?.star_student && d.students.find(x=>x.id===c.star_student);
@@ -942,7 +946,6 @@ async function showStudentClass(){
   const J = new URLSearchParams(location.search), jc = J.get('join'), jk = J.get('k');
   if(jc && classes.some(x=>x.id===jc)){ try{ history.replaceState(null, '', location.pathname); }catch(e){} $('#cls').value = jc; if(jk){ $('#code').value = jk; go(); } }
 }
-const TEACHER_OPT = '__teacher';
 function showStudentName(c, code, list){
   setView(`<h1>${esc(c.name)}</h1>
     <div class="panel">
@@ -956,11 +959,9 @@ function showStudentName(c, code, list){
   $('#stu').innerHTML = list.length
     ? `<option value="">Choose your name</option>` + list.map(s=>`<option value="${s.id}" ${last.student_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')
     : `<option value="">No names yet. Ask your teacher.</option>`;
-  // Every class list ends with TEACHER: the PE teacher logs in here with the teacher PIN and lands on this class
-  $('#stu').insertAdjacentHTML('beforeend', `<option value="${TEACHER_OPT}">TEACHER</option>`);
   const pinUI = () => {
     const s = list.find(x=>x.id===$('#stu').value);
-    if($('#stu').value === TEACHER_OPT){
+    if(s?.is_teacher){   // TEACHER opens with the teacher PIN
       $('#pinBox').innerHTML = `<label class="field"><span>Teacher PIN</span><input id="pin" type="password" autocomplete="current-password"></label>`;
       $('#pin').onkeydown = e => { if(e.key==='Enter') login(); };
       return;
@@ -975,18 +976,10 @@ function showStudentName(c, code, list){
   };
   $('#stu').onchange = pinUI; pinUI();
   const login = async () => {
-    if($('#stu').value === TEACHER_OPT){
-      $('#login').disabled = true;
-      try{
-        const r = await Store.teacherLogin($('#pin').value); S.teacher = r.token; tabStore.set('bwb-teacher', r.token); header();
-        const k = (await Store.tClasses(S.teacher)).find(x=>x.id===c.id); k ? showClass(k) : showTeacherHome();
-      }catch(e){ $('#login').disabled = false; toast(e.message); }
-      return;
-    }
     const s = list.find(x=>x.id===$('#stu').value);
     if(!s) return toast('Choose your name.');
     const pin = ($('#pin')?.value||'').trim();
-    if(!/^\d{4}$/.test(pin)) return toast('Your PIN must be 4 digits.');
+    if(!s.is_teacher && !/^\d{4}$/.test(pin)) return toast('Your PIN must be 4 digits.');
     if(!s.has_pin && pin !== ($('#pin2')?.value||'').trim()) return toast('The two PINs do not match.');
     $('#login').disabled = true;
     try{
@@ -1278,7 +1271,7 @@ async function showStudentHome(){
   if($('#instBtn')) $('#instBtn').onclick = showInstallHelp;
   if($('#notifBtn')) $('#notifBtn').onclick = () => Notification.requestPermission().then(r=>{ toast(r==='granted' ? 'Alerts are on' : 'Alerts are off'); $('#notifBtn')?.parentElement.remove(); });
   liveStudentStart();
-  if(!celebrate && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
+  if(!celebrate && !S.student.is_teacher && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
   $('#surp').onclick = () => surpriseWorkout(false);
   $('#quick').onclick = () => surpriseWorkout(true);
   $('#build').onclick = () => { S.sel = []; S.planId = null; showBuilder(); };
@@ -1598,6 +1591,7 @@ function showSummary(){
     const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, bpm:P.bpm, done_at:P.doneAt, ...(P.planId ? {plan_id:P.planId} : {}) };
     const pbs = exercises.filter(e=>prevPB[e.name]!=null && Math.max(...e.results)>prevPB[e.name]).length;
     const msg = `Workout saved: ${num(calcPoints(exercises))} points${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
+    if(S.student?.is_teacher){ toast('Well done! Workouts done as TEACHER are not saved.'); return showStudentHome(); }
     $('#save').disabled = true;
     S.before = {...badgeState(), pbs};
     try{ await Store.addSession(S.token, sess); toast(msg); showStudentHome(); }

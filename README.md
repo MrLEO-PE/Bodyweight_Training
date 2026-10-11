@@ -49,7 +49,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   - "Start fresh" deletes all existing classes, students and workouts first (you must type DELETE), so you can replace a previous import with a new file.
   - It warns before creating a class of more than 60 students, since students pick their name from that class's list.
   - The file is read on the teacher's device: only names and classes are saved.
-- **TEACHER in every class list:** the list of names ends with TEACHER. The teacher chooses it, types the teacher PIN, and lands on that class page (set a challenge, start a live session). It is not a student account, so it never appears in leaderboards, counts or results.
+- **TEACHER account in every class:** the list of names ends with TEACHER, in every class (new and existing). The teacher chooses it, types the teacher PIN, and gets the same menu as a student: the challenge, Quick workout, the timer, heart-rate step and live sessions. It follows the teacher PIN, so changing that PIN changes it. TEACHER is never counted: it is not in student lists, totals, leaderboards or results, it does not delay a live session's start, and its workouts are not saved.
 - **Reset PINs:** reset one student, tick several, or reset every PIN of a class. Each student creates a new PIN at their next login, like the first time. Workouts and results are kept.
 - **Move a student** to another class from the class page, for example when they change form. Their PIN and history go with them.
 - Or paste a class list to add students. Students create their own 4-digit PIN at first login, and you can reset it.

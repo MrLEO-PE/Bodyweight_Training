@@ -177,6 +177,14 @@ create table if not exists public.bw_imports (
 );
 alter table public.bw_students add column if not exists import_id uuid references public.bw_imports(id) on delete set null;
 
+-- TEACHER: one account per class, so the PE teacher can log in from the student page (opens with the teacher PIN).
+-- It never counts as a student: not in lists, totals, leaderboards or results, and its workouts are not saved.
+alter table public.bw_students add column if not exists is_teacher boolean not null default false;
+insert into public.bw_students (class_id, name, is_teacher)
+  select c.id, 'TEACHER', true from public.bw_classes c
+   where not exists (select 1 from public.bw_students s where s.class_id = c.id and s.is_teacher)
+  on conflict do nothing;
+
 alter table public.bw_live add column if not exists only_gender text check (only_gender in ('M', 'F'));
 
 /* ---------- Lock the tables: no direct access from the browser ---------- */
@@ -245,16 +253,17 @@ language sql stable security definer set search_path = public as $$
   select c.id, c.name, c.year_group from bw_classes c order by c.name
 $$;
 
+drop function if exists public.bw_list_students(uuid, text);
 create or replace function public.bw_list_students(p_class_id uuid, p_code text)
-returns table (id uuid, name text, has_pin boolean)
+returns table (id uuid, name text, has_pin boolean, is_teacher boolean)
 language plpgsql stable security definer set search_path = public as $$
 begin
   if not exists (select 1 from bw_classes c where c.id = p_class_id
                  and lower(trim(c.code)) = lower(trim(coalesce(p_code, '')))) then
     raise exception 'That class code is not right. Check with your teacher.';
   end if;
-  return query select s.id, s.name, s.pin_hash is not null from bw_students s
-                where s.class_id = p_class_id order by s.name;
+  return query select s.id, s.name, (s.pin_hash is not null or s.is_teacher), s.is_teacher from bw_students s
+                where s.class_id = p_class_id order by s.is_teacher, s.name;
 end $$;
 
 create or replace function public.bw_student_login(p_student_id uuid, p_code text, p_pin text)
@@ -268,13 +277,23 @@ begin
   if lower(trim(c.code)) <> lower(trim(coalesce(p_code, ''))) then
     return jsonb_build_object('error', 'That class code is not right. Check with your teacher.');
   end if;
-  if coalesce(p_pin, '') !~ '^[0-9]{4}$' then
+  if not s.is_teacher and coalesce(p_pin, '') !~ '^[0-9]{4}$' then
     return jsonb_build_object('error', 'Your PIN must be 4 digits.');
   end if;
   if s.locked_until > now() then
     return jsonb_build_object('error', 'Too many wrong PINs. Wait 10 minutes or ask your teacher to reset it.');
   end if;
-  if s.pin_hash is null then
+  if s.is_teacher then
+    -- the TEACHER entry of every class opens with the teacher PIN
+    if (select teacher_pin_hash from bw_settings where id = 1) is distinct from crypt(coalesce(p_pin, ''), (select teacher_pin_hash from bw_settings where id = 1)) then
+      update bw_students
+         set failed_attempts = case when failed_attempts >= 4 then 0 else failed_attempts + 1 end,
+             locked_until    = case when failed_attempts >= 4 then now() + interval '10 minutes' end
+       where id = s.id;
+      return jsonb_build_object('error', 'Wrong teacher PIN.');
+    end if;
+    update bw_students set failed_attempts = 0, locked_until = null where id = s.id;
+  elsif s.pin_hash is null then
     update bw_students set pin_hash = crypt(p_pin, gen_salt('bf')), failed_attempts = 0, locked_until = null where id = s.id;
   elsif s.pin_hash <> crypt(p_pin, s.pin_hash) then
     update bw_students
@@ -287,7 +306,7 @@ begin
   end if;
   return jsonb_build_object(
     'token', bw__new_token('student', s.id, interval '30 days'),
-    'student', jsonb_build_object('id', s.id, 'name', s.name),
+    'student', jsonb_build_object('id', s.id, 'name', s.name, 'is_teacher', s.is_teacher),
     'cls', jsonb_build_object('id', c.id, 'name', c.name, 'weekly_goal', c.weekly_goal));
 end $$;
 
@@ -299,7 +318,7 @@ begin
   select * into s from bw_students where id = sid;
   select * into c from bw_classes where id = s.class_id;
   return jsonb_build_object(
-    'student', jsonb_build_object('id', s.id, 'name', s.name),
+    'student', jsonb_build_object('id', s.id, 'name', s.name, 'is_teacher', s.is_teacher),
     'cls', jsonb_build_object('id', c.id, 'name', c.name, 'weekly_goal', c.weekly_goal));
 end $$;
 
@@ -327,6 +346,7 @@ declare
   plan uuid;
 begin
   select * into s from bw_students where id = sid;
+  if s.is_teacher then return null; end if;
   select * into c from bw_classes where id = s.class_id;
   select pl.id into plan from bw_plans pl where pl.id::text = p_s ->> 'plan_id' and pl.class_id = c.id;
   if jsonb_typeof(ex) is distinct from 'array' or jsonb_array_length(ex) not between 1 and 12 then
@@ -414,7 +434,7 @@ begin
   perform bw__teacher(p_token);
   return query
     select c.id, c.name, c.code, c.weekly_goal, c.year_group,
-           (select count(*) from bw_students s where s.class_id = c.id),
+           (select count(*) from bw_students s where s.class_id = c.id and not s.is_teacher),
            (select count(*) from bw_sessions x where x.class_id = c.id)
       from bw_classes c order by c.name;
 end $$;
@@ -432,6 +452,7 @@ begin
   insert into bw_classes (name, code, weekly_goal, year_group)
   values (left(trim(p_name), 60), trim(p_code), least(greatest(coalesce(p_goal, 3), 1), 7), bw__year(p_year))
   returning bw_classes.id into new_id;
+  insert into bw_students (class_id, name, is_teacher) values (new_id, 'TEACHER', true) on conflict do nothing;
   return new_id;
 end $$;
 
@@ -472,7 +493,7 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   return query select s.id, s.name, s.pin_hash is not null, s.gender from bw_students s
-                where s.class_id = p_class_id order by s.name;
+                where s.class_id = p_class_id and not s.is_teacher order by s.name;
 end $$;
 
 -- Add students by name, with an optional gender for each (same order as the names).
@@ -507,7 +528,7 @@ returns table (id uuid, name text, class_id uuid, gender text)
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return query select s.id, s.name, s.class_id, s.gender from bw_students s order by s.id;
+  return query select s.id, s.name, s.class_id, s.gender from bw_students s where not s.is_teacher order by s.id;
 end $$;
 
 create or replace function public.bw_t_set_gender(p_token text, p_student_id uuid, p_gender text) returns void
@@ -651,7 +672,7 @@ begin
           left join lastlvl l on l.student_id = s.id
           left join lateral (select * from ps where ps.class_id = s.class_id and (ps.only_gender is null or ps.only_gender = s.gender)
                               order by (ps.only_gender is null), ps.created_at desc limit 1) p on true
-          left join best b on b.student_id = s.id and b.plan_id = p.id), '[]'::jsonb),
+          left join best b on b.student_id = s.id and b.plan_id = p.id where not s.is_teacher), '[]'::jsonb),
       'plans', coalesce((select jsonb_object_agg(q.class_id::text, jsonb_build_object('id', q.id, 'title', q.title, 'due_on', q.due_on))
                            from (select distinct on (class_id) * from ps order by class_id, (only_gender is not null), created_at desc) q), '{}'::jsonb)));
 end $$;
@@ -757,7 +778,7 @@ begin
   select gender into g from bw_students where id = sid;
   select (bw__plan_for(c.id, g) ->> 'id')::uuid into pl;
   return jsonb_build_object(
-    'class_size', (select count(*) from bw_students s where s.class_id = c.id),
+    'class_size', (select count(*) from bw_students s where s.class_id = c.id and not s.is_teacher),
     'plan', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'points', x.pts) order by x.pts desc, s.name)
                         from bw_students s
                         join (select student_id, max(points) as pts from bw_sessions
@@ -773,7 +794,7 @@ begin
     'cup', case when c.year_group is null then '[]'::jsonb else coalesce((
              select jsonb_agg(jsonb_build_object('id', k.id, 'name', k.name, 'size', z.size, 'week', z.wk, 'last', z.lw) order by k.name)
                from bw_classes k
-               cross join lateral (select (select count(*) from bw_students s where s.class_id = k.id) as size,
+               cross join lateral (select (select count(*) from bw_students s where s.class_id = k.id and not s.is_teacher) as size,
                                           (select coalesce(sum(points), 0) from bw_sessions x where x.class_id = k.id and x.created_at >= wk) as wk,
                                           (select coalesce(sum(points), 0) from bw_sessions x where x.class_id = k.id and x.created_at >= lw and x.created_at < wk) as lw) z
               where lower(k.year_group) = lower(c.year_group)), '[]'::jsonb) end);
@@ -925,8 +946,8 @@ language sql stable security definer set search_path = public as $$
     'id', l.id, 'class_id', l.class_id, 'status', l.status, 'start_at', l.start_at, 'server_now', now(),
     'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at,
     'plan', (select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id), 'only_gender', l.only_gender,
-    'size', (select count(*) from bw_students s where s.class_id = l.class_id and (l.only_gender is null or s.gender = l.only_gender)),
-    'ready', coalesce((select jsonb_agg(r.student_id) from bw_live_ready r where r.live_id = l.id), '[]'::jsonb))
+    'size', (select count(*) from bw_students s where s.class_id = l.class_id and not s.is_teacher and (l.only_gender is null or s.gender = l.only_gender)),
+    'ready', coalesce((select jsonb_agg(r.student_id) from bw_live_ready r join bw_students s on s.id = r.student_id where r.live_id = l.id and not s.is_teacher), '[]'::jsonb))
   from bw_live l where l.id = p_live
 $$;
 
@@ -975,7 +996,7 @@ language plpgsql security definer set search_path = public, extensions as $$
 declare sid uuid := bw__student(p_token); lid uuid;
 begin
   select l.id into lid from bw_live l join bw_students s on s.class_id = l.class_id
-   where s.id = sid and l.status <> 'ended' and l.created_at > now() - interval '3 hours' and (l.only_gender is null or s.gender = l.only_gender)
+   where s.id = sid and l.status <> 'ended' and l.created_at > now() - interval '3 hours' and (l.only_gender is null or s.gender = l.only_gender or s.is_teacher)
    order by l.created_at desc limit 1;
   if lid is null then return null; end if;
   return bw__live_state(lid) || jsonb_build_object('me_ready', exists(select 1 from bw_live_ready r where r.live_id = lid and r.student_id = sid));
@@ -986,10 +1007,10 @@ create or replace function public.bw_live_ready(p_token text, p_live uuid) retur
 language plpgsql security definer set search_path = public, extensions as $$
 declare sid uuid := bw__student(p_token); cid uuid;
 begin
-  select l.class_id into cid from bw_live l join bw_students s on s.class_id = l.class_id where l.id = p_live and s.id = sid and l.status <> 'ended' and (l.only_gender is null or s.gender = l.only_gender);
+  select l.class_id into cid from bw_live l join bw_students s on s.class_id = l.class_id where l.id = p_live and s.id = sid and l.status <> 'ended' and (l.only_gender is null or s.gender = l.only_gender or s.is_teacher);
   if cid is null then return jsonb_build_object('error', 'This live session has ended.'); end if;
   insert into bw_live_ready (live_id, student_id) values (p_live, sid) on conflict do nothing;
-  if (select count(*) from bw_live_ready r where r.live_id = p_live) >= (bw__live_state(p_live) ->> 'size')::int then
+  if (select count(*) from bw_live_ready r join bw_students s on s.id = r.student_id where r.live_id = p_live and not s.is_teacher) >= (bw__live_state(p_live) ->> 'size')::int then
     perform bw__live_go(p_live);
   end if;
   return bw__live_state(p_live) || jsonb_build_object('me_ready', true);
