@@ -1510,6 +1510,7 @@ function startPhase(i){
   const stopCount = P.phases[i-1]?.type==='pulse' ? 'Stop counting. Remember your number. ' : '';
   say(stopCount + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
+const canSkip = () => !!S.student?.is_teacher && !P.sched;   // only TEACHER can skip: warm-up, exercises, rests, heart rate, cool-down
 function renderPhase(){
   const ph=P.phases[P.i], e=P.ex[ph.ex], el=$('#player'), N=P.ex.length, R=S.settings.rounds;
   const nw = P.phases.slice(P.i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
@@ -1539,7 +1540,7 @@ function renderPhase(){
     el.className='player'; el.style.cssText = lc(1);
     main = `<div class="p-phase" id="pph">${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}</div><div class="p-time" id="pt">${ph.dur}</div>
       <div class="p-name">${esc(ph.item.name)}</div><p class="p-cue">${esc(ph.item.cue)}</p>
-      <button type="button" class="link" id="skipall" ${P.sched ? 'hidden' : ''}>Skip the whole ${ph.type==='warm' ? 'warm-up' : 'cool-down'}</button>`;
+      <button type="button" class="link" id="skipall" ${canSkip() ? '' : 'hidden'}>Skip the whole ${ph.type==='warm' ? 'warm-up' : 'cool-down'}</button>`;
   } else {
     el.className='player'; el.style.cssText = lc(e.level);
     const label = ph.type==='ready' ? 'Get ready' : (e.unit==='sec' ? 'Hold' : 'Go, count your reps');
@@ -1550,7 +1551,7 @@ function renderPhase(){
   el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
     <div class="p-top">${ph.type.startsWith('pulse') ? '<span>Heart rate</span>' : ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item || ph.type.startsWith('pulse') ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
     <div class="p-main">${main}</div>
-    <div class="p-ctrl">${P.sched ? '<span class="pbtn" style="border-style:dashed">Live with your class</span>' : `<button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>`}${ph.type==='work' || ph.type.startsWith('pulse') || P.sched ? '' : `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : ph.item ? 'Skip' : 'Start now'}</button>`}<button class="pbtn" id="quit">Quit</button></div>`;
+    <div class="p-ctrl">${P.sched ? '<span class="pbtn" style="border-style:dashed">Live with your class</span>' : `<button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>`}${canSkip() ? `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : ph.type==='work' ? 'Skip exercise' : ph.type.startsWith('pulse') ? 'Skip heart rate' : ph.item ? 'Skip' : 'Start now'}</button>` : ''}<button class="pbtn" id="quit">Quit</button></div>`;
   if($('#pp')) $('#pp').onclick = togglePause;
   if($('#pulseStart')) $('#pulseStart').onclick = async () => {
     $('#pulseStart').disabled = true;
@@ -1560,7 +1561,7 @@ function renderPhase(){
   $('#vc').onclick = () => { ls.set('bwb-voice', !voiceOn()); if(!voiceOn()) try{ speechSynthesis.cancel(); }catch(e){} $('#vc').textContent = voiceOn() ? 'Voice on' : 'Voice off'; };
   if($('#howp')) $('#howp').onclick = () => { const x = ph.type==='rest' ? ne : e; if(!P.paused && !P.sched) togglePause(); showHow(x.fid, x.level); };
   if($('#skip')) $('#skip').onclick = () => startPhase(P.i+1);
-  if($('#skipall')) $('#skipall').onclick = () => { const j = P.phases.findIndex((p, k)=>k > P.i && p.type !== ph.type); startPhase(j < 0 ? P.phases.length : j); };   // only in rest and get-ready: exercises cannot be skipped
+  if($('#skipall')) $('#skipall').onclick = () => { const j = P.phases.findIndex((p, k)=>k > P.i && p.type !== ph.type); startPhase(j < 0 ? P.phases.length : j); };   // TEACHER only
   $('#quit').onclick = () => { if(confirm(P.noSave ? 'Leave the live session timer?' : 'Quit this workout? Nothing will be saved.')){ cleanupPlayer(); if(P.noSave) return P.onDone && P.onDone(); P.planId ? showStudentHome() : showBuilder(); } };
   if(ph.type==='rest'){
     const inp=$('#sv'), set=v=>{ const n=Math.max(0, parseInt(v,10)||0); e.results[ph.round]=n; inp.value=n; };
@@ -1759,8 +1760,8 @@ const TUTORIAL = [
   ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked. <b>TEACHER</b> at the end of the list is for your PE teacher.', 'name'],
   ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge is below it, with the date to do it by: tap <b>See the workout</b>. When there is no challenge, the big button starts a quick workout. Everything else is under <b>More</b>.', 'home'],
   ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up.', 'programme'],
-  ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but you cannot skip an exercise.', 'work'],
-  ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. If you are ready early, tap "Skip rest".', 'rest'],
+  ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but nothing can be skipped: every exercise counts for your points.', 'work'],
+  ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. Use the + and − buttons or type the number.', 'rest'],
   ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. Then the stretches begin. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
   ['Count your pulse together', 'In a live challenge, the red screen says <b>Wait</b>: put your fingers on your pulse and keep still. When your teacher presses the button, the 30-second count starts on every screen 3 seconds later. Count every beat until it reaches 0, then the stretches begin.', 'pulse-live'],
   ['Save your workout', 'Type the beats you counted: the app doubles it to give your beats per minute (bpm). Then check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
@@ -3034,7 +3035,7 @@ function showClassSheet(c, back){
 // Teacher tutorial: every option, in the order a new colleague needs them. Screenshots are in tutorial/teacher/.
 const TEACHER_GUIDE = [
   ['Getting started', [
-    ['Log in', 'On the first screen press <b>Teacher</b> and type the teacher PIN. Every PE teacher uses the same PIN and sees every class. Each class name list also ends with <b>TEACHER</b>: log in there with the teacher PIN to do workouts and live challenges like a student.', 'login'],
+    ['Log in', 'On the first screen press <b>Teacher</b> and type the teacher PIN. Every PE teacher uses the same PIN and sees every class. Each class name list also ends with <b>TEACHER</b>: log in there with the teacher PIN to do workouts and live challenges like a student. TEACHER is the only login that can <b>skip</b> any step (warm-up, exercises, rests, heart rate, cool-down) in a workout done alone; students cannot skip anything, and nobody can skip in a live session.', 'login'],
     ['The Classes page', 'Three main buttons: <b>Set a challenge workout</b>, <b>Saved challenges</b> and <b>Results board</b>, plus <b>Import students</b>. Below, the getting-started list ticks itself as you go. Each class card has <b>Open</b>, <b>Class sheet</b>, <b>☆ Mine</b> (puts your forms first on this device) and <b>Download</b>. Less used tools are in the drawers at the bottom.', 'home']]],
   ['Students', [
     ['Import your class lists', 'Press <b>Import students</b> and choose an Excel, LibreOffice or CSV file (from Google Sheets, download it as .xlsx first). The app finds the name, form and gender columns and shows a preview: check it, then import. It creates the forms and moves students who changed form. <b>Files already imported</b> lists every file: press <b>✕</b> to delete an old version and the students who are not in a newer file.', 'import'],

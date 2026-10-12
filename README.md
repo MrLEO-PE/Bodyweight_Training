@@ -7,7 +7,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 ## What students get
 
 - **Workout builder:** 8 to 12 exercises (a teacher's challenge workout can have as few as 4) across Legs, Upper body, Core, Cardio and Balance, with 30, 40 or 45 s work, rest time and 1 to 3 rounds.
-- **Timer:** full-screen with beeps. Exercises cannot be skipped, only rests ("Skip rest"), so every exercise gets a score.
+- **Timer:** full-screen with beeps. Students cannot skip anything (warm-up, exercises, rests, heart rate, cool-down), so every exercise gets a score. Only the **TEACHER** account can skip any step, in workouts done alone (not in a live session, where everyone stays in step).
 - **Points:** each rep is 1 point and each second held is half a point, times the level (Level 1 x1, Level 2 x1.5, Level 3 x2, Level 4 x2.5), so choosing a harder level pays off.
 - **Leaderboards:** challenge workout (best try counts), this week, and **most improved** (this week compared with last week), plus a **form cup** ranking the forms of the year group by points per student.
 - **Rank titles:** Rookie, Athlete (1,000 points), Pro (4,000) and Legend (10,000), with a progress bar to the next rank.
@@ -22,7 +22,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 
   "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
 - **Two tabs:** **Today** (this week, the challenge, one main button, and a **More** menu with the other ways to train) and **Me and my class** (rank, levels, badges, fitness checks, leaderboards, form cup, class challenges). The last tab is remembered.
-- **Warm-up and cool-down:** the timer always starts with 5 warm-up moves and ends with 4 stretches, 30 seconds each. They can be skipped, exercises cannot.
+- **Warm-up and cool-down:** the timer always starts with 5 warm-up moves and ends with 4 stretches, 30 seconds each. Students cannot skip them; only TEACHER can.
 - **Install as an app:** add the app to the home screen (iPhone, Android or computer) so it opens full screen. Once opened online, it also starts without a connection. Workouts done offline upload later.
 - **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.
