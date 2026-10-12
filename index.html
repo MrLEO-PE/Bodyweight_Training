@@ -275,7 +275,8 @@ const CONFIG = {
   SUPABASE_URL: 'https://tufoatmpespwqeeklkhi.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1Zm9hdG1wZXNwd3FlZWtsa2hpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0MDIzNjQsImV4cCI6MjEwNjk3ODM2NH0.P6-CyS_1cqKISdhkoiH9_jvIfnFfWO7ekU2v93DJQBU'
 };
-const MIN_EX = 8, MAX_EX = 12;
+const MIN_EX = 8, MIN_PLAN_EX = 4, MAX_EX = 12;   // a teacher's challenge needs only 4 exercises
+const minEx = () => S.planFor ? MIN_PLAN_EX : MIN_EX;
 
 /* ===== Exercise library: [name, unit ('reps' or 'sec'), cue] for levels 1 to 4 ===== */
 const REGIONS = ['Legs','Upper body','Core','Cardio','Balance'];
@@ -1347,7 +1348,7 @@ function showBuilder(){
   const T = S.planFor;
   setView(`${T ? `<p><button class="btn ghost small" id="cancelPlan">Back to ${esc(T.name)}</button></p>
       <h1>Challenge workout</h1>
-      <p class="muted">Pick 8 to 12 exercises from the list at the level most students can manage. Students can do it as set or at their own levels.</p>
+      <p class="muted">Pick 4 to 12 exercises from the list at the level most students can manage. Students can do it as set or at their own levels.</p>
       <div class="panel"><label class="field"><span>Title</span><input id="ptitle" maxlength="80" value="${esc(T.plan?.title || 'Challenge workout')}"></label>
         <label class="field" style="margin:0"><span>Message to students (optional)</span><textarea id="pnote" rows="2" maxlength="500" placeholder="e.g. Core focus before our gymnastics unit">${esc(T.plan?.note || '')}</textarea></label>
         <label class="field" style="max-width:260px;margin:14px 0 0"><span>Do it by (optional)</span><input id="pdue" type="date" value="${esc(T.plan?.due_on || '')}"></label>
@@ -1410,9 +1411,9 @@ function refreshBuilder(){
   const mins = Math.round((10 + rounds*n*work + Math.max(0,rounds*n-1)*rest + (S.planFor ? 0 : wcSecs()))/60);
   const cov = REGIONS.map(r=>({r, c:S.sel.filter(x=>FAM[x.fam].region===r).length}));
   $('#dock').innerHTML = `<div class="dock-in">
-    <div><b>${n} chosen</b> <span class="muted">${n<MIN_EX ? `pick ${MIN_EX-n} more` : `about ${mins} min`}</span>
+    <div><b>${n} chosen</b> <span class="muted">${n<minEx() ? `pick ${minEx()-n} more` : `about ${mins} min`}</span>
       <div class="cover">${cov.map(o=>`<span class="${o.c?'on':''}">${o.r} ${o.c}</span>`).join('')}</div></div>
-    <div class="actions">${n?'<button class="btn ghost small" id="clear">Clear</button>':''}<button class="btn" id="start" ${n<MIN_EX||n>MAX_EX?'disabled':''}>${S.planFor?'Publish':'Start'}</button></div></div>`;
+    <div class="actions">${n?'<button class="btn ghost small" id="clear">Clear</button>':''}<button class="btn" id="start" ${n<minEx()||n>MAX_EX?'disabled':''}>${S.planFor?'Publish':'Start'}</button></div></div>`;
   $('#start').onclick = S.planFor ? publishPlan : startWorkout;
   if($('#clear')) $('#clear').onclick = () => { S.sel = []; S.planId = null; refreshBuilder(); };
 }
@@ -2109,7 +2110,7 @@ async function showClass(c){
     $('#plan').className = '';
     $('#plan').innerHTML = PL.length
       ? PL.map(planPanel).join('') + `<p style="margin:12px 0 0"><button class="btn ghost small" data-newplan="new">Set another challenge, for example for boys only</button></p>`
-      : `<div class="panel"><p style="margin:0 0 10px">No challenge workout set. Pick 8 to 12 exercises and students see it at the top of their page with the due date, ready to start.</p><button class="btn small" data-newplan="new">Set a challenge workout</button></div>`;
+      : `<div class="panel"><p style="margin:0 0 10px">No challenge workout set. Pick 4 to 12 exercises and students see it at the top of their page with the due date, ready to start.</p><button class="btn small" data-newplan="new">Set a challenge workout</button></div>`;
     $$('[data-live]').forEach(b=>b.onclick = () => showLiveTeacher(c, b.dataset.live));
     const OLD = X.old_plans || [];
     if(OLD.length){
@@ -3040,7 +3041,7 @@ const TEACHER_GUIDE = [
     ['Give students their class code', 'On a class card or class page, press <b>Class sheet</b>. It shows the class code, a QR code and the three login steps: show it on the screen or print it. Students scan it, choose their name and create a 4-digit PIN.', 'sheet'],
     ['Manage the class list', 'Open a class to see every student with this week\'s workouts, streak and level. You can set each student\'s gender, move a student to another form, or remove them. To reset PINs, use <b>Reset PIN</b> on one student, tick several and press <b>Reset PIN of selected students</b>, or <b>Reset every PIN in this class</b>. Students then create a new PIN at their next login; their results are kept.', 'students']]],
   ['Challenges', [
-    ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Give it a title, an optional message and a due date. Pick 8 to 12 exercises: by default students choose their own level, untick it to fix a level. Choose <b>For</b>: everyone, boys only or girls only. Tick the forms or a whole year group. <b>Keep it in Saved challenges</b> is ticked so you can use it again. Press <b>Publish</b>.', 'builder'],
+    ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Give it a title, an optional message and a due date. Pick 4 to 12 exercises: by default students choose their own level, untick it to fix a level. Choose <b>For</b>: everyone, boys only or girls only. Tick the forms or a whole year group. <b>Keep it in Saved challenges</b> is ticked so you can use it again. Press <b>Publish</b>.', 'builder'],
     ['Saved challenges', 'Every challenge you keep is listed here for all PE teachers, with its exercises and duration. Press <b>Use</b> to give it to other forms (you can still change the date, levels and exercises), or <b>✕</b> to delete it. To save a challenge without giving it to anyone, tick no form and press Publish.', 'saved'],
     ['Follow a class\'s challenge', 'The class page shows one panel per challenge (for everyone, boys only or girls only) with how many have done it. After the due date it counts on time, late and missed, and tags late tries. Open <b>Not done yet</b> to see or copy the names. The results table ranks every student with their points, heart rate and each exercise. Previous challenges stay below, with <b>Use again</b> and <b>Save</b>.', 'class']]],
   ['Live challenges', [

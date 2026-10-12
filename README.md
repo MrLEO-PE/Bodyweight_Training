@@ -6,7 +6,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 
 ## What students get
 
-- **Workout builder:** 8 to 12 exercises across Legs, Upper body, Core, Cardio and Balance, with 30, 40 or 45 s work, rest time and 1 to 3 rounds.
+- **Workout builder:** 8 to 12 exercises (a teacher's challenge workout can have as few as 4) across Legs, Upper body, Core, Cardio and Balance, with 30, 40 or 45 s work, rest time and 1 to 3 rounds.
 - **Timer:** full-screen with beeps. Exercises cannot be skipped, only rests ("Skip rest"), so every exercise gets a score.
 - **Points:** each rep is 1 point and each second held is half a point, times the level (Level 1 x1, Level 2 x1.5, Level 3 x2, Level 4 x2.5), so choosing a harder level pays off.
 - **Leaderboards:** challenge workout (best try counts), this week, and **most improved** (this week compared with last week), plus a **form cup** ranking the forms of the year group by points per student.
