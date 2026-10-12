@@ -191,11 +191,24 @@ alter table public.bw_live add column if not exists class_ids uuid[];
 alter table public.bw_sessions add column if not exists live_id uuid references public.bw_live(id) on delete set null;
 create index if not exists bw_sessions_live on public.bw_sessions (live_id) where live_id is not null;   -- all the forms of a live session (class_id is the first)
 
+-- Saved challenges: challenge workouts kept by the PE department to use again
+create table if not exists public.bw_templates (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  note text not null default '',
+  work_sec int not null,
+  rest_sec int not null,
+  rounds int not null,
+  exercises jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 /* ---------- Lock the tables: no direct access from the browser ---------- */
 
 do $$ declare t text; p record; begin
   foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens',
-                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports'] loop
+                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports','bw_templates'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on table public.%I from anon, authenticated', t);
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
@@ -1127,6 +1140,45 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   return bw__live_board(p_live);
+end $$;
+
+/* ---------- Saved challenges ---------- */
+
+create or replace function public.bw_t_templates(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return coalesce((select jsonb_agg(to_jsonb(t) order by lower(t.title)) from bw_templates t), '[]'::jsonb);
+end $$;
+
+-- Save a challenge. A saved challenge with the same title is replaced, so saving again updates it.
+create or replace function public.bw_t_save_template(p_token text, p_t jsonb) returns uuid
+language plpgsql security definer set search_path = public, extensions as $$
+declare ex jsonb := p_t -> 'exercises'; ttl text := left(trim(coalesce(p_t ->> 'title', '')), 80); tid uuid;
+begin
+  perform bw__teacher(p_token);
+  if jsonb_typeof(ex) is distinct from 'array' or jsonb_array_length(ex) not between 1 and 12 or length(ttl) = 0
+     or coalesce((p_t ->> 'rounds')::int, 0) not between 1 and 3
+     or coalesce((p_t ->> 'work_sec')::int, 0) not between 10 and 120
+     or coalesce((p_t ->> 'rest_sec')::int, -1) not between 0 and 120 then
+    raise exception 'This workout is not valid.';
+  end if;
+  update bw_templates set note = left(coalesce(p_t ->> 'note', ''), 500), work_sec = (p_t ->> 'work_sec')::int, rest_sec = (p_t ->> 'rest_sec')::int,
+         rounds = (p_t ->> 'rounds')::int, exercises = ex, updated_at = now()
+   where lower(title) = lower(ttl) returning id into tid;
+  if tid is null then
+    insert into bw_templates (title, note, work_sec, rest_sec, rounds, exercises)
+    values (ttl, left(coalesce(p_t ->> 'note', ''), 500), (p_t ->> 'work_sec')::int, (p_t ->> 'rest_sec')::int, (p_t ->> 'rounds')::int, ex)
+    returning id into tid;
+  end if;
+  return tid;
+end $$;
+
+create or replace function public.bw_t_delete_template(p_token text, p_id uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  delete from bw_templates where id = p_id;
 end $$;
 
 /* ---------- Imported files ---------- */

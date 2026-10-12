@@ -66,6 +66,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   - The card shows each form's part of the total, and students see their own form highlighted.
 - **Backup:** download everything (classes, students, workouts, fitness checks, challenges; no PINs) as an Excel file or a complete JSON file. The teacher page reminds you when the last backup is over a month old.
 - **New school year:** one guided page that downloads a backup, moves every class up a year (10C becomes 11C), removes the classes that leave and, if you choose, clears workouts and fitness checks. Students who stay keep their PIN and class code.
+- **Saved challenges:** a shared library of challenge workouts for the whole PE department (button on the Classes page). When you set a challenge, "Keep it in Saved challenges" is ticked: it is saved with its title, message, exercises and timings (saving again with the same title updates it). To only save, tick no form. **Use** opens one ready to give to any forms, with the due date and levels still editable; ✕ deletes it. Previous challenges on a class page also have a **Save** button.
 - **Previous challenge workouts** stay on each class page with their results, and can be used again.
 - **Copy names:** one click copies the names of students who have not done the challenge (class page) or nothing in the chosen period (results board).
 - **Star of the week** per class, with a message, shown at the top of every student's page.

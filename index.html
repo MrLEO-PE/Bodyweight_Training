@@ -556,7 +556,10 @@ function makeCloud(){
     tSetTestLabel: (tok, cid, label) => rpc('bw_t_set_test_label', {p_token:tok, p_class_id:cid, p_label:label}),
     tChallenges: tok => rpc('bw_t_challenges', {p_token:tok}),
     tAddChallenge: (tok, ch) => rpc('bw_t_add_challenge', {p_token:tok, p_c:ch}),
-    tDeleteChallenge: (tok, id) => rpc('bw_t_delete_challenge', {p_token:tok, p_id:id})
+    tDeleteChallenge: (tok, id) => rpc('bw_t_delete_challenge', {p_token:tok, p_id:id}),
+    tTemplates: tok => rpc('bw_t_templates', {p_token:tok}),
+    tSaveTemplate: (tok, t) => rpc('bw_t_save_template', {p_token:tok, p_t:t}),
+    tDeleteTemplate: (tok, id) => rpc('bw_t_delete_template', {p_token:tok, p_id:id})
   };
 }
 const Local = {
@@ -627,6 +630,11 @@ const Local = {
     return {...i, students:st.length, classes:[...new Set(st.map(s=>d.classes.find(c=>c.id===s.class_id)?.name).filter(Boolean))].sort()}; }).sort((a,b)=>b.created_at.localeCompare(a.created_at)); },
   async tDeleteImport(tok, id){ const d=this._t(tok), gone=d.students.filter(s=>s.import_id===id).map(s=>s.id);
     d.students=d.students.filter(s=>s.import_id!==id); d.sessions.forEach(x=>{ if(gone.includes(x.student_id)) x.student_id=null; }); d.imports=(d.imports||[]).filter(i=>i.id!==id); this._save(d); return gone.length; },
+  async tTemplates(tok){ return [...(this._t(tok).templates || [])].sort((a,b)=>a.title.toLowerCase().localeCompare(b.title.toLowerCase())); },
+  async tSaveTemplate(tok, t){ const d=this._t(tok); d.templates ||= []; const x = d.templates.find(y=>y.title.toLowerCase()===t.title.trim().toLowerCase());
+    const row = {title:t.title.trim(), note:t.note||'', work_sec:t.work_sec, rest_sec:t.rest_sec, rounds:t.rounds, exercises:t.exercises, updated_at:new Date().toISOString()};
+    if(x) Object.assign(x, row); else d.templates.push({...row, id:uid(), created_at:row.updated_at}); this._save(d); return (x || d.templates.at(-1)).id; },
+  async tDeleteTemplate(tok, id){ const d=this._t(tok); d.templates=(d.templates||[]).filter(x=>x.id!==id); this._save(d); },
   async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
   _liveIn(L, s){ return (L.class_ids || [L.class_id]).includes(s.class_id) && (!L.only_gender || s.gender===L.only_gender || !!s.is_teacher); },
@@ -1342,7 +1350,9 @@ function showBuilder(){
           ${byYear(S.tclasses||[]).map(([y, cs])=>`<div class="yeargrp">
             ${y===NO_YEAR ? `<div class="small muted" style="margin-bottom:6px">${NO_YEAR}</div>` : `<label class="check"><input type="checkbox" name="pY" value="${esc(y)}"> <b>All of ${esc(y)}</b></label>`}
             <div class="forms">${cs.map(c=>`<label class="check"><input type="checkbox" name="pC" value="${c.id}" data-year="${esc(y)}" ${c.id===T.id?'checked':''}> ${esc(c.name)}</label>`).join('')}</div></div>`).join('')}
-        </fieldset></div>`
+        </fieldset>
+        <label class="check" style="margin-top:12px"><input type="checkbox" id="psave" ${T.fromTemplate ? '' : 'checked'}> <span>Keep it in <b>Saved challenges</b> to use again later</span></label>
+        <p class="muted small" style="margin:4px 0 0">To only save it, tick no form and press Publish.</p></div>`
     : `<h1>Build your workout</h1>
       <p class="muted">Pick one level per movement, 8 to 12 exercises in total. They run in the order you pick them. For a full-body session, include Legs, Upper body and Core.${S.A && Object.keys(S.A.fams).length ? ' <b>Your level</b> shows where you are, <b>Try this</b> means you are ready to step up.' : ''} Tap <b>How to</b> to see how each exercise is done.</p>
       ${S.planId ? `<p class="panel small" style="max-width:none">Your teacher's workout of the week is loaded. Tap another level on any exercise to make it easier or harder.</p>` : ''}`}
@@ -1362,7 +1372,7 @@ function showBuilder(){
   };
   if(T){
     $('#pgen').value = T.plan?.only_gender || T.gender || '';
-    $('#cancelPlan').onclick = () => T.id ? showClass(T) : showTeacherHome();
+    $('#cancelPlan').onclick = () => T.fromTemplate ? showTemplates() : T.id ? showClass(T) : showTeacherHome();
     $$('[name="pY"]').forEach(y=>y.onchange=()=>$$('[name="pC"]').filter(c=>c.dataset.year===y.value).forEach(c=>{ c.checked=y.checked; c.disabled=y.checked; }));
   }
   WC_HOOK = refreshBuilder;
@@ -1405,9 +1415,15 @@ async function publishPlan(){
   if(!title) return toast('Give the workout a title.');
   const {work,rest,rounds} = S.settings;
   const targets = $$('[name="pC"]:checked').map(x=>S.tclasses.find(k=>k.id===x.value)).filter(Boolean);
-  if(!targets.length) return toast('Choose at least one class to give the challenge to.');
+  const keep = !!$('#psave')?.checked;
+  if(!targets.length && !keep) return toast('Choose at least one class to give the challenge to, or tick "Keep it in Saved challenges".');
   const plan = {title, note:$('#pnote').value.trim(), due_on:$('#pdue').value || '', only_gender:$('#pgen').value || '', work_sec:work, rest_sec:rest, rounds, exercises:S.sel.map(x=>({fid:x.fam, lvl:x.lvl, free:!!x.free}))};
   $('#start').disabled = true;
+  if(keep){
+    try{ await Store.tSaveTemplate(S.teacher, {title, note:plan.note, work_sec:work, rest_sec:rest, rounds, exercises:plan.exercises}); }
+    catch(e){ $('#start').disabled = false; return fail('Could not save the challenge', e); }
+    if(!targets.length){ toast(`"${title}" saved in Saved challenges`); S.sel = []; return showTemplates(); }
+  }
   let n = 0;
   try{ for(const k of targets){ await Store.tSetPlan(S.teacher, k.id, plan); n++; } }
   catch(e){ $('#start').disabled = false; return fail(`Published to ${n} of ${targets.length} classes, then stopped`, e); }
@@ -1863,7 +1879,7 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
-    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">How it works (teachers)</button></p>
+    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="tpl">Saved challenges</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">How it works (teachers)</button></p>
     <div id="ck"></div>
     <details class="panel settings"><summary><b>Add a class by hand</b></summary><div class="h3" style="margin-top:10px">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
@@ -1900,6 +1916,7 @@ async function showTeacherHome(){
   $('#imp').onclick = () => showImport();
   $('#lib').onclick = showLibrary;
   $('#tguide').onclick = showTeacherGuide;
+  $('#tpl').onclick = () => showTemplates();
   $('#board').onclick = showBoard;
   $('#bkX').onclick = e => downloadBackup('xlsx', e.target);
   $('#bkJ').onclick = e => downloadBackup('json', e.target);
@@ -2059,8 +2076,10 @@ async function showClass(c){
       $('#plan').insertAdjacentHTML('beforeend', `<details class="panel" style="margin-top:12px"><summary>Previous challenge workouts (${OLD.length})</summary>
         ${OLD.map(p=>{ const done = new Set(ss.filter(x=>x.plan_id===p.id && x.student_id).map(x=>x.student_id)).size;
           return `<div class="between" style="padding:8px 0;border-top:1px solid var(--line)"><div><b>${esc(p.title)}</b>${p.only_gender ? ` <span class="tag">${p.only_gender==='M' ? 'Boys only' : 'Girls only'}</span>` : ''}<div class="muted small">Set ${fmtDate(p.created_at)}${p.due_on ? `, due ${fmtDay(p.due_on)}` : ''}. Done by ${done} of ${st.length}.</div></div>
-            <div class="actions"><button class="btn ghost small" data-oldres="${p.id}">Results</button><button class="btn ghost small" data-reuse="${p.id}">Use again</button></div></div><div id="oldres-${p.id}"></div>`; }).join('')}</details>`);
+            <div class="actions"><button class="btn ghost small" data-oldres="${p.id}">Results</button><button class="btn ghost small" data-reuse="${p.id}">Use again</button><button class="btn ghost small" data-keep="${p.id}">Save</button></div></div><div id="oldres-${p.id}"></div>`; }).join('')}</details>`);
       $$('[data-oldres]').forEach(b=>b.onclick=()=>{ const el = $('#oldres-'+b.dataset.oldres); el.innerHTML = el.innerHTML ? '' : planResultsHTML(st, ss, OLD.find(p=>p.id===b.dataset.oldres)); });
+      $$('[data-keep]').forEach(b=>b.onclick=async()=>{ const p = OLD.find(x=>x.id===b.dataset.keep);
+        try{ await Store.tSaveTemplate(S.teacher, {title:p.title, note:p.note||'', work_sec:p.work_sec, rest_sec:p.rest_sec, rounds:p.rounds, exercises:p.exercises}); toast(`"${p.title}" saved in Saved challenges`); }catch(e){ fail('Could not save', e); } });
       $$('[data-reuse]').forEach(b=>b.onclick=()=>{ const p = OLD.find(x=>x.id===b.dataset.reuse);
         S.planFor = {...c, plan:{...p, due_on:''}}; S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl, free:!!x.free}));
         S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds}; showBuilder(); });
@@ -2899,6 +2918,36 @@ function liveJoin(st){
   startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), liveId:st.id});
 }
 
+/* ===== Saved challenges: the department's library of challenge workouts ===== */
+async function showTemplates(){
+  setView(`<p><button class="btn ghost small" id="back">All classes</button></p>
+    <h1>Saved challenges</h1>
+    <p class="muted">Challenge workouts kept by the PE department. Press <b>Use</b> to give one to your forms: you can still change the exercises, the due date and who gets it. Every teacher sees the same list.</p>
+    <p><button class="btn" id="tplNew">Create a new challenge</button></p>
+    <div id="tplList" class="muted">Loading…</div>`);
+  $('#back').onclick = showTeacherHome;
+  $('#tplNew').onclick = () => { if(!(S.tclasses||[]).length) return toast('Add a class first.'); S.planFor = {id:null, name:'your classes', plan:null}; S.sel = []; S.settings = {work:40, rest:20, rounds:2}; showBuilder(); };
+  let list;
+  try{ [list, S.tclasses] = await Promise.all([Store.tTemplates(S.teacher), Store.tClasses(S.teacher)]); }
+  catch(e){ if(isExpired(e)) return logout(e.message); $('#tplList').textContent = 'Could not load: ' + e.message; return; }
+  $('#tplList').className = '';
+  $('#tplList').innerHTML = !list.length
+    ? '<div class="panel"><p style="margin:0">No saved challenges yet. When you set a challenge, leave <b>Keep it in Saved challenges</b> ticked and it appears here.</p></div>'
+    : `<div class="clist">${list.map(t=>{ const mins = Math.round((10 + t.rounds*t.exercises.length*t.work_sec + Math.max(0, t.rounds*t.exercises.length-1)*t.rest_sec)/60);
+        return `<div class="panel"><div class="between"><div class="h3" style="margin:0">${esc(t.title)}</div><button type="button" class="btn ghost small" data-tdel="${t.id}" aria-label="Delete ${esc(t.title)}" title="Delete">✕</button></div>
+          ${t.note ? `<p style="margin:4px 0 6px">${esc(t.note)}</p>` : ''}
+          <p class="muted small" style="margin:0 0 8px">${t.exercises.length} exercises, ${t.rounds} round${t.rounds===1?'':'s'}, ${t.work_sec}s work, ${t.rest_sec}s rest, about ${mins} minutes.</p>
+          <p class="small" style="margin:0 0 10px;max-width:none">${t.exercises.map(x=>{ const l = FAM[x.fid]?.levels[x.lvl-1]; return !l ? '' : x.free ? `<span style="white-space:nowrap"><span class="lvtag" style="--lc:var(--muted);--lon:var(--paper)">Any</span> ${esc(FAM[x.fid].name)}</span>` : `<span style="white-space:nowrap"><span class="lvtag" style="${lc(x.lvl)}">L${x.lvl}</span> ${esc(l.n)}</span>`; }).join(' &nbsp; ')}</p>
+          <button class="btn small" data-tuse="${t.id}">Use</button></div>`; }).join('')}</div>`;
+  $$('[data-tuse]').forEach(b=>b.onclick = () => { const t = list.find(x=>x.id===b.dataset.tuse);
+    S.planFor = {id:null, name:'your classes', plan:{title:t.title, note:t.note}, fromTemplate:true};
+    S.sel = t.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl, free:!!x.free}));
+    S.settings = {work:t.work_sec, rest:t.rest_sec, rounds:t.rounds}; showBuilder(); });
+  $$('[data-tdel]').forEach(b=>b.onclick = async () => { const t = list.find(x=>x.id===b.dataset.tdel);
+    if(!confirm(`Delete "${t.title}" from Saved challenges? Challenges already given to forms are not affected.`)) return;
+    try{ await Store.tDeleteTemplate(S.teacher, t.id); toast('Deleted'); showTemplates(); }catch(e){ fail('Could not delete', e); } });
+}
+
 /* ===== Getting started, class sheet and teacher guide ===== */
 // Small to-do list on the teacher home page, remembered on this device
 const CK = { get: () => ls.get('bwb-ck', {}), set(k){ const o = this.get(); if(!o[k]){ o[k] = 1; ls.set('bwb-ck', o); } } };
@@ -2943,6 +2992,7 @@ const TEACHER_GUIDE = [
   ['Give students their class code', 'Open a class and press <b>Class sheet (QR code)</b>. Print it, or show it on the screen. Students scan the code, choose their name and create a 4-digit PIN. If a student forgets their PIN, open the class and reset it.'],
   ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Pick 8 to 12 exercises, a due date, and tick the forms or whole year groups that get it. Choose <b>Boys only</b> or <b>Girls only</b> when the groups are split that way. For each exercise, fix the level or let students pick theirs.'],
   ['Boys and girls taught apart', 'Students always stay in their form. To teach boys or girls from several forms together, publish one challenge to those forms with <b>For: Boys only</b> (or Girls only). Those students see that challenge, and the rest of the form sees the other one.'],
+  ['Saved challenges', 'Every challenge you set is kept in <b>Saved challenges</b> (Classes page), shared by all PE teachers. Press <b>Use</b> to give it to other forms later, or <b>✕</b> to delete it.'],
   ['Check who did it', 'Each class page shows who did the challenge on time, late or not at all, with their points. The <b>Results board</b> lets you filter by year group, form, gender and challenge status, copy the names of students who missed it, and download Excel.'],
   ['Train together live', 'On the class page, press <b>Train together (live)</b> during a video call. Students tap <b>I\'m ready</b> on their own page, and the workout starts for everyone at the same moment, when all are ready or when you press <b>Start now</b>. You never log into a student\'s account. Ask students to open the app first.'],
   ['My classes', 'Press <b>☆ Mine</b> on the forms you teach. They move to the top of your list on this device.'],
