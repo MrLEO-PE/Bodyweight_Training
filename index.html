@@ -247,6 +247,7 @@ details.more>summary,details.settings>summary{cursor:pointer}
 button.tag.flag{border:0;cursor:pointer;background:var(--l4);color:#fff;font:700 .72rem var(--body)}
 canvas.confetti{position:fixed;inset:0;pointer-events:none;z-index:120}
 .tut img{display:block;width:100%;max-width:340px;border:1px solid var(--line);border-radius:12px;margin:10px 0 4px}
+.tguide img{max-width:760px}
 .tut .step{font-family:var(--display);font-weight:800;font-size:1.3rem}
 select.mv{width:auto;padding:.3em .5em;font-size:.9rem;border-radius:999px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -1526,7 +1527,7 @@ function renderPhase(){
       <button type="button" class="link" id="howp">How to do it</button>`;
   }
   el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
-    <div class="p-top">${ph.type.startsWith('pulse') ? '<span>Heart rate</span>' : ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
+    <div class="p-top">${ph.type.startsWith('pulse') ? '<span>Heart rate</span>' : ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item || ph.type.startsWith('pulse') ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
     <div class="p-main">${main}</div>
     <div class="p-ctrl">${P.sched ? '<span class="pbtn" style="border-style:dashed">Live with your class</span>' : `<button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>`}${ph.type==='work' || ph.type.startsWith('pulse') || P.sched ? '' : `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : ph.item ? 'Skip' : 'Start now'}</button>`}<button class="pbtn" id="quit">Quit</button></div>`;
   if($('#pp')) $('#pp').onclick = togglePause;
@@ -1716,14 +1717,15 @@ function showHow(fid, only){
 
 /* ===== Student tutorial (screenshots in tutorial/) ===== */
 const TUTORIAL = [
-  ['Join your class', 'Scan the QR code on your teacher\'s class sheet, or open the link. It fills in your form and class code for you. Otherwise, choose your form, for example 10C, and type the class code.', 'join'],
-  ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked.', 'name'],
-  ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge workout is below it, with the date to do it by. Tap "See the workout".', 'home'],
-  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up. After the last exercise it turns red: find your pulse and count your beats for 30 seconds, then the stretches begin.', 'programme'],
+  ['Join your class', 'Scan the QR code on your teacher\'s class sheet, or open the link: it fills in your form and class code for you. Otherwise, choose your form, for example 10C, and type the class code.', 'join'],
+  ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked. <b>TEACHER</b> at the end of the list is for your PE teacher.', 'name'],
+  ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge is below it, with the date to do it by: tap <b>See the workout</b>. When there is no challenge, the big button starts a quick workout. Everything else is under <b>More</b>.', 'home'],
+  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up.', 'programme'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but you cannot skip an exercise.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. If you are ready early, tap "Skip rest".', 'rest'],
-  ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, then save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
-  ['Train live with your class', 'When your teacher starts a live session, an alert appears on your page. Tap "I\'m ready". The workout starts for everyone at the same moment, so keep the app open. If you are late, tap "Join now".', null],
+  ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. Then the stretches begin.', 'pulse'],
+  ['Save your workout', 'Type the beats you counted: the app doubles it to give your beats per minute (bpm). Then check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
+  ['Train live with your class', 'When your teacher starts a live challenge, an alert appears on your page: tap <b>I\'m ready</b> and keep the app open. The workout starts for everyone at the same moment. If you are late, tap <b>Join now</b>. After saving, you see one leaderboard with everyone who took part, even from other forms.', 'live'],
   ['Add it to your home screen', 'On your phone, add the app to your home screen so it opens like a normal app and starts quickly. Tap "Add the app to your home screen" on your page for the steps.', null],
   ['See your points and progress', 'Open the <b>Me and my class</b> tab to compare with your class on the leaderboards, help your form win the form cup, collect badges, climb from Rookie to Legend and keep your weekly streak going.', 'board']
 ];
@@ -1879,7 +1881,7 @@ const goalSelect = (id, v=3) => `<select id="${id}">${[1,2,3,4,5,6,7].map(n=>`<o
 async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
-    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="tpl">Saved challenges</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">How it works (teachers)</button></p>
+    <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="tpl">Saved challenges</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">Teacher tutorial</button></p>
     <div id="ck"></div>
     <details class="panel settings"><summary><b>Add a class by hand</b></summary><div class="h3" style="margin-top:10px">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
@@ -2987,24 +2989,42 @@ function showClassSheet(c, back){
   $('#print').onclick = () => window.print();
 }
 
+// Teacher tutorial: every option, in the order a new colleague needs them. Screenshots are in tutorial/teacher/.
 const TEACHER_GUIDE = [
-  ['Add your classes', 'On the Classes page, add a form such as 10C with a class code, or press <b>Import students from a file</b> and upload your Excel, LibreOffice or CSV list. The import creates the forms for you.'],
-  ['Give students their class code', 'Open a class and press <b>Class sheet (QR code)</b>. Print it, or show it on the screen. Students scan the code, choose their name and create a 4-digit PIN. If a student forgets their PIN, open the class and reset it.'],
-  ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Pick 8 to 12 exercises, a due date, and tick the forms or whole year groups that get it. Choose <b>Boys only</b> or <b>Girls only</b> when the groups are split that way. For each exercise, fix the level or let students pick theirs.'],
-  ['Boys and girls taught apart', 'Students always stay in their form. To teach boys or girls from several forms together, publish one challenge to those forms with <b>For: Boys only</b> (or Girls only). Those students see that challenge, and the rest of the form sees the other one.'],
-  ['Saved challenges', 'Every challenge you set is kept in <b>Saved challenges</b> (Classes page), shared by all PE teachers. Press <b>Use</b> to give it to other forms later, or <b>✕</b> to delete it.'],
-  ['Check who did it', 'Each class page shows who did the challenge on time, late or not at all, with their points. The <b>Results board</b> lets you filter by year group, form, gender and challenge status, copy the names of students who missed it, and download Excel.'],
-  ['Train together live', 'On the class page, press <b>Train together (live)</b> during a video call. Students tap <b>I\'m ready</b> on their own page, and the workout starts for everyone at the same moment, when all are ready or when you press <b>Start now</b>. You never log into a student\'s account. Ask students to open the app first.'],
-  ['My classes', 'Press <b>☆ Mine</b> on the forms you teach. They move to the top of your list on this device.'],
-  ['Settings', 'Class challenges, demo videos, backup, new school year and the teacher PIN are in the <b>Settings</b> drawer at the bottom of the Classes page. By default, students choose their own level for each exercise; untick that for any exercise you want to fix.'],
-  ['Backups and next year', 'Download a backup from time to time. At the end of the school year, <b>New school year</b> moves every class up one year and keeps students\' PINs.']];
+  ['Getting started', [
+    ['Log in', 'On the first screen press <b>Teacher</b> and type the teacher PIN. Every PE teacher uses the same PIN and sees every class. Each class name list also ends with <b>TEACHER</b>: log in there with the teacher PIN to do workouts and live challenges like a student.', null],
+    ['The Classes page', 'Three main buttons: <b>Set a challenge workout</b>, <b>Saved challenges</b> and <b>Results board</b>, plus <b>Import students</b>. Below, the getting-started list ticks itself as you go. Each class card has <b>Open</b>, <b>Class sheet</b>, <b>☆ Mine</b> (puts your forms first on this device) and <b>Download</b>. Less used tools are in the drawers at the bottom.', 'home']]],
+  ['Students', [
+    ['Import your class lists', 'Press <b>Import students</b> and choose an Excel, LibreOffice or CSV file (from Google Sheets, download it as .xlsx first). The app finds the name, form and gender columns and shows a preview: check it, then import. It creates the forms and moves students who changed form. <b>Files already imported</b> lists every file: press <b>✕</b> to delete an old version and the students who are not in a newer file.', 'import'],
+    ['Give students their class code', 'On a class card or class page, press <b>Class sheet</b>. It shows the class code, a QR code and the three login steps: show it on the screen or print it. Students scan it, choose their name and create a 4-digit PIN.', 'sheet'],
+    ['Manage the class list', 'Open a class to see every student with this week\'s workouts, streak and level. You can set each student\'s gender, move a student to another form, or remove them. To reset PINs, use <b>Reset PIN</b> on one student, tick several and press <b>Reset PIN of selected students</b>, or <b>Reset every PIN in this class</b>. Students then create a new PIN at their next login; their results are kept.', 'students']]],
+  ['Challenges', [
+    ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Give it a title, an optional message and a due date. Pick 8 to 12 exercises: by default students choose their own level, untick it to fix a level. Choose <b>For</b>: everyone, boys only or girls only. Tick the forms or a whole year group. <b>Keep it in Saved challenges</b> is ticked so you can use it again. Press <b>Publish</b>.', 'builder'],
+    ['Saved challenges', 'Every challenge you keep is listed here for all PE teachers, with its exercises and duration. Press <b>Use</b> to give it to other forms (you can still change the date, levels and exercises), or <b>✕</b> to delete it. To save a challenge without giving it to anyone, tick no form and press Publish.', 'saved'],
+    ['Follow a class\'s challenge', 'The class page shows one panel per challenge (for everyone, boys only or girls only) with how many have done it. After the due date it counts on time, late and missed, and tags late tries. Open <b>Not done yet</b> to see or copy the names. The results table ranks every student with their points, heart rate and each exercise. Previous challenges stay below, with <b>Use again</b> and <b>Save</b>.', 'class']]],
+  ['Live challenges', [
+    ['Train together from a class page', 'During a video call or a lesson, press <b>Train together (live)</b> on the challenge panel, then <b>Open the session</b>. Students get an alert and tap <b>I\'m ready</b>; you see the list fill up. It starts for everyone when all are ready, or when you press <b>Start now</b>. Ask students to open the app first: the alert only reaches those who have it open.', 'live'],
+    ['Several forms together, as TEACHER', 'Log in as <b>TEACHER</b> in your form and press <b>Start a live challenge</b>. Tick the forms that take part (for example 8B and 8C) and choose everyone, boys or girls. You do the workout too, and your score is saved and shown with a <b>Teacher</b> tag. Keep your own form ticked. Give all the forms the same challenge beforehand so everyone does the same workout.', 'acct'],
+    ['The live leaderboard', 'After the workout everyone counts their pulse, saves their score and sees one leaderboard for the whole live challenge: all the forms together, with each name\'s form, bpm and points. It updates as others save. Each result also counts for the student\'s own form\'s challenge.', 'lvboard']]],
+  ['Results', [
+    ['Results board', 'One page with every student. Filter by year group, form, gender, period (this week, last 4 weeks, the challenge, all time) and challenge status (on time, late, not done, missed). <b>Only students with nothing done</b> and <b>Copy names</b> help you follow up. The By class table compares forms, and <b>Download this view</b> gives an Excel file.', 'board'],
+    ['Student pages and Excel', 'Click any name to see that student\'s full progress: workouts, levels, personal bests and fitness checks. Each class card has <b>Download (.xlsx)</b>, and the Settings drawer downloads every class at once. Scores that look too high are marked <b>Check</b>, with the reason.', null]]],
+  ['Settings and good habits', [
+    ['Settings drawer', 'At the bottom of the Classes page: team <b>class challenges</b> (for example "Year 10: 1,000 workouts this half-term"), your own <b>demo videos</b> for any exercise, <b>backup</b> to Excel or a full file, <b>new school year</b> (moves every class up a year and keeps PINs) and <b>change teacher PIN</b>. On a class page you can also pick a <b>star of the week</b> and open a <b>fitness check</b>.', null],
+    ['Good habits', 'Set one challenge a week with a clear due date, ideally from Saved challenges. Start live challenges in a lesson first so students learn the routine. Check the results board each week and copy the names of students with nothing done. Download a backup each month. Use a long teacher PIN and never show it to students.', null]]]
+];
 function showTeacherGuide(){
   setView(`<p class="noprint"><button class="btn ghost small" id="back">Back</button> <button class="btn small" id="print">Print this page</button></p>
-    <h1>How it works for teachers</h1>
-    <p class="muted">${TEACHER_GUIDE.length} short steps. Every teacher uses the same teacher PIN and sees every class.</p>
-    <div class="clist tut">${TEACHER_GUIDE.map(([t, d], i)=>`<div class="panel"><div class="step">${i+1}. ${t}</div><p style="margin:4px 0 0;max-width:none">${d}</p></div>`).join('')}</div>`);
-  $('#back').onclick = showTeacherHome;
+    <h1>Teacher tutorial</h1>
+    <p class="muted">Everything a PE teacher needs, in order. Tap a topic to jump to it.</p>
+    <p class="btns noprint">${TEACHER_GUIDE.map(([h], i)=>`<button type="button" class="btn ghost small" data-goto="${i}">${esc(h)}</button>`).join('')}</p>
+    ${TEACHER_GUIDE.map(([h, steps], i)=>`<h2 id="tg${i}">${esc(h)}</h2>
+      <div class="clist tut tguide">${steps.map(([t, d, img])=>`<div class="panel"><div class="step">${t}</div><p style="margin:4px 0 0;max-width:none">${d}</p>
+        ${img ? `<img src="tutorial/teacher/${img}.png" alt="Screenshot: ${esc(t)}" loading="lazy" onerror="this.remove()">` : ''}</div>`).join('')}</div>`).join('')}
+    <p style="margin-top:20px" class="noprint"><button class="btn" id="back2">Back to the classes</button></p>`);
+  $('#back').onclick = $('#back2').onclick = showTeacherHome;
   $('#print').onclick = () => window.print();
+  $$('[data-goto]').forEach(b=>b.onclick = () => $('#tg' + b.dataset.goto)?.scrollIntoView({behavior:'smooth'}));
 }
 
 // First visit of a student: three short cards, shown once on this device
