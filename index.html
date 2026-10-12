@@ -535,6 +535,10 @@ function makeCloud(){
     tLiveState: (tok, id) => rpc('bw_t_live_state', {p_token:tok, p_live:id}),
     tLiveGo: (tok, id) => rpc('bw_t_live_go', {p_token:tok, p_live:id}),
     tLiveEnd: (tok, id) => rpc('bw_t_live_end', {p_token:tok, p_live:id}),
+    sLiveStart: (tok, ids, w, c, g) => rpc('bw_s_live_start', {p_token:tok, p_class_ids:ids, p_warm:w, p_cool:c, p_gender:g || null}),
+    sLiveState: (tok, id) => rpc('bw_s_live_state', {p_token:tok, p_live:id}),
+    sLiveGo: (tok, id) => rpc('bw_s_live_go', {p_token:tok, p_live:id}),
+    sLiveEnd: (tok, id) => rpc('bw_s_live_end', {p_token:tok, p_live:id}),
     liveCheck: tok => rpc('bw_live_check', {p_token:tok}),
     liveReady: (tok, id) => rpc('bw_live_ready', {p_token:tok, p_live:id}),
     tSetStar: (tok, cid, sid, msg) => rpc('bw_t_set_star', {p_token:tok, p_class_id:cid, p_student_id:sid || null, p_message:msg || ''}),
@@ -622,24 +626,35 @@ const Local = {
     d.students=d.students.filter(s=>s.import_id!==id); d.sessions.forEach(x=>{ if(gone.includes(x.student_id)) x.student_id=null; }); d.imports=(d.imports||[]).filter(i=>i.id!==id); this._save(d); return gone.length; },
   async tRemoveStudent(tok, id){ const d=this._t(tok); d.students=d.students.filter(s=>s.id!==id); d.sessions.forEach(s=>{ if(s.student_id===id) s.student_id=null; }); this._save(d); },
   async tSessions(tok, cid){ return this._t(tok).sessions.filter(s=>s.class_id===cid).sort(newestFirst); },
-  _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id);
+  _liveIn(L, s){ return (L.class_ids || [L.class_id]).includes(s.class_id) && (!L.only_gender || s.gender===L.only_gender || !!s.is_teacher); },
+  _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id), ids = L.class_ids || [L.class_id];
+    const members = d.students.filter(s=>!s.is_teacher && this._liveIn(L, s)).map(s=>({id:s.id, name:s.name, cls:d.classes.find(c=>c.id===s.class_id)?.name || ''})).sort((a,b)=>a.cls.localeCompare(b.cls) || a.name.localeCompare(b.name));
     return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at,
-      plan:p ? {...p} : null, only_gender:L.only_gender||null, size:d.students.filter(s=>s.class_id===L.class_id && !s.is_teacher && (!L.only_gender || s.gender===L.only_gender)).length, ready:L.ready.filter(id=>!d.students.find(s=>s.id===id)?.is_teacher)}; },
+      classes:d.classes.filter(c=>ids.includes(c.id)).map(c=>c.name).sort(), plan:p ? {...p} : null, only_gender:L.only_gender||null,
+      size:members.length, members, ready:L.ready.filter(id=>!d.students.find(s=>s.id===id)?.is_teacher)}; },
   _liveGo(L){ if(L.status==='waiting'){ L.status='started'; L.start_at=new Date(Date.now()+5000).toISOString(); } },
-  async tLiveStart(tok, cid, w, c, g){ g = g || null; const d=this._t(tok), P=this._plan(d,cid,g); if(!P) throw new Error('Set a challenge workout for this class first.');
-    (d.live ||= []).forEach(x=>{ if(x.class_id===cid && x.status!=='ended') x.status='ended'; });
-    const L={id:uid(), class_id:cid, only_gender:g, plan_id:P.id, warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
+  _liveStart(d, ids, w, c, g){ g = g || null;
+    if(!ids.length) throw new Error('Choose at least one class.');
+    const P = ids.map(id=>this._plan(d, id, g)).find(Boolean); if(!P) throw new Error('Set a challenge workout for this class first.');
+    (d.live ||= []).forEach(x=>{ if(x.status!=='ended' && (x.class_ids || [x.class_id]).some(id=>ids.includes(id))) x.status='ended'; });
+    const L={id:uid(), class_id:ids[0], class_ids:[...ids], only_gender:g, plan_id:P.id, warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
     d.live.push(L); this._save(d); return this._liveState(d,L); },
+  _acct(tok){ const [d,s] = this._stu(tok); if(!s.is_teacher) throw new Error('Only TEACHER can do this.'); return d; },
+  async tLiveStart(tok, cid, w, c, g){ return this._liveStart(this._t(tok), [cid], w, c, g); },
   async tLiveState(tok, id){ const d=this._t(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
   async tLiveGo(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async tLiveEnd(tok, id){ const d=this._t(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
-  async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.class_id===s.class_id && x.status!=='ended' && (!x.only_gender || x.only_gender===s.gender || s.is_teacher) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
-    return L ? {...this._liveState(d,L), me_ready:L.ready.includes(s.id)} : null; },
-  async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && x.class_id===s.class_id && (!x.only_gender || x.only_gender===s.gender || s.is_teacher));
+  async sLiveStart(tok, ids, w, c, g){ return this._liveStart(this._acct(tok), ids, w, c, g); },
+  async sLiveState(tok, id){ const d=this._acct(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
+  async sLiveGo(tok, id){ const d=this._acct(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
+  async sLiveEnd(tok, id){ const d=this._acct(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
+  async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.status!=='ended' && this._liveIn(x, s) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
+    return L ? {...this._liveState(d,L), me_ready:L.ready.includes(s.id), my_plan_id:this._plan(d, s.class_id, s.gender||null)?.id || null} : null; },
+  async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && this._liveIn(x, s));
     if(!L) throw new Error('This live session has ended.');
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
-    if(L.ready.length >= this._liveState(d,L).size) this._liveGo(L);
-    this._save(d); return {...this._liveState(d,L), me_ready:true}; },
+    if(this._liveState(d,L).ready.length >= this._liveState(d,L).size) this._liveGo(L);
+    this._save(d); return {...this._liveState(d,L), me_ready:true, my_plan_id:this._plan(d, s.class_id, s.gender||null)?.id || null}; },
   async tStudentSessions(tok, sid){ return this._t(tok).sessions.filter(s=>s.student_id===sid).sort(newestFirst); },
   async tClearResults(tok, cid){
     const d=this._t(tok); d.sessions=d.sessions.filter(x=>x.class_id!==cid); d.tests=(d.tests||[]).filter(x=>x.class_id!==cid); d.plans=(d.plans||[]).filter(x=>x.class_id!==cid);
@@ -1227,6 +1242,7 @@ async function showStudentHome(){
     <div class="tabs" role="tablist" aria-label="Sections">${[['today','Today'],['progress','Me and my class']].map(([k,l])=>`<button type="button" role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('')}</div>
     <section data-pane="today" ${tab==='today' ? '' : 'hidden'}>
     ${celebrate}
+    ${S.student.is_teacher ? `<div class="panel feature"><div class="muted small">TEACHER</div><div class="h3">Live challenge</div><p style="margin:0 0 10px">Start the challenge with one or more forms at the same time, for example 8B and 8C together.</p><button class="btn" id="liveAcct">Start a live challenge</button></div>` : ''}
     <p class="weekline"><b>This week:</b> ${wkN} of ${goalN} workouts${wkN >= goalN ? ' ✓' : ''}${X.plan ? ` · challenge ${planDone ? 'done ✓' : X.plan.due_on ? dueText(X.plan.due_on) : 'to do'}` : ''}</p>
     ${recapHTML(S.hist, S.cls.weekly_goal||3)}
     ${starHTML(X.star)}
@@ -1271,6 +1287,7 @@ async function showStudentHome(){
   if($('#instBtn')) $('#instBtn').onclick = showInstallHelp;
   if($('#notifBtn')) $('#notifBtn').onclick = () => Notification.requestPermission().then(r=>{ toast(r==='granted' ? 'Alerts are on' : 'Alerts are off'); $('#notifBtn')?.parentElement.remove(); });
   liveStudentStart();
+  if($('#liveAcct')) $('#liveAcct').onclick = showLiveAcct;
   if(!celebrate && !S.student.is_teacher && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
   $('#surp').onclick = () => surpriseWorkout(false);
   $('#quick').onclick = () => surpriseWorkout(true);
@@ -2691,63 +2708,101 @@ const serverOffset = st => new Date(st.server_now).getTime() - Date.now();
 const liveStartLocal = st => new Date(st.start_at).getTime() - serverOffset(st);
 
 function liveTeacherStop(){ if(LIVE?.timer) clearInterval(LIVE.timer); LIVE = null; }
+// A session is run from the teacher page, or from the TEACHER account of a class (which can bring several forms together)
+const LIVE_API = {
+  teacher: { start:(ids, g) => Store.tLiveStart(S.teacher, ids[0], !!wcPref().warm, !!wcPref().cool, g), state:id => Store.tLiveState(S.teacher, id),
+             go:id => Store.tLiveGo(S.teacher, id), end:id => Store.tLiveEnd(S.teacher, id) },
+  acct:    { start:(ids, g) => Store.sLiveStart(S.token, ids, !!wcPref().warm, !!wcPref().cool, g), state:id => Store.sLiveState(S.token, id),
+             go:id => Store.sLiveGo(S.token, id), end:id => Store.sLiveEnd(S.token, id) }
+};
+const liveIntro = `<p class="muted">Everyone does the challenge workout at the same time as you, for example during a video call. Each student taps <b>I'm ready</b> on their own page. The workout starts for everyone when all are ready, or when you press <b>Start now</b>. Students who are late can still join, in step with the others.</p>
+    <p class="small">Ask students to open the app now: the alert only reaches students who have it open. The session includes a short warm-up and cool-down.</p>`;
+
+// Teacher page: one class (or its boys / girls)
 function showLiveTeacher(c, g){
   g = g || '';
   liveTeacherStop();
   setView(`<p><button class="btn ghost small" id="back">Back to ${esc(c.name)}</button></p>
     <h1>Train together${g ? (g==='M' ? ' (boys)' : ' (girls)') : ''}</h1>
-    <p class="muted">${esc(c.name)} does the challenge workout at the same time as you, for example during a video call. Each student taps <b>I'm ready</b> on their own page. The workout starts for everyone when the whole class is ready, or when you press <b>Start now</b>. Students who are late can still join, in step with the others.</p>
-    <p class="small">Ask students to open the app now: the alert only reaches students who have it open.</p>
-    <p class="small muted" id="lvOpts">The session includes a short warm-up and cool-down.</p>
-    <p style="margin-top:14px"><button class="btn" id="lvOpen">Open the session</button></p>
+    ${liveIntro}
+    <p style="margin-top:14px" id="lvOpts"><button class="btn" id="lvOpen">Open the session</button></p>
     <div id="lv"></div>`);
-  WC_HOOK = null;
-  view.onclick = e => { const b = e.target.closest('[data-wc]'); if(b) setWc(b); };
-  $('#back').onclick = () => { if(LIVE) Store.tLiveEnd(S.teacher, LIVE.id).catch(()=>{}); liveTeacherStop(); showClass(c); };
-  $('#lvOpen').onclick = async () => {
-    const pr = wcPref();
-    try{
-      const st = await Store.tLiveStart(S.teacher, c.id, !!pr.warm, !!pr.cool, g);
-      CK.set('live');
-      LIVE = {c, id:st.id, studs:(await Store.tStudents(S.teacher, c.id)).filter(x=>!g || x.gender===g)};
-      $('#lvOpen').remove(); $('#lvOpts').remove();
-      liveTeacherRender(st);
-      LIVE.timer = setInterval(async () => { if(!LIVE) return; try{ liveTeacherRender(await Store.tLiveState(S.teacher, LIVE.id)); }catch(e){} }, 2000);
-    }catch(e){ fail('Could not open the session', e); }
+  const back = () => showClass(c);
+  $('#back').onclick = () => { if(LIVE) LIVE.api.end(LIVE.id).catch(()=>{}); liveTeacherStop(); back(); };
+  $('#lvOpen').onclick = () => liveOpen(LIVE_API.teacher, [c.id], g, back);
+}
+
+// TEACHER account (student page): choose one or several forms, for example 8B and 8C together
+async function showLiveAcct(){
+  liveTeacherStop();
+  let classes = [];
+  try{ classes = await Store.listClasses(); }catch(e){ return fail('Could not load the classes', e); }
+  const mine = S.cls?.id;
+  setView(`<p><button class="btn ghost small" id="back">Back</button></p>
+    <h1>Live challenge</h1>
+    ${liveIntro}
+    <div id="lvOpts">
+    <div class="panel"><fieldset class="plain"><legend>Which forms take part</legend>
+      ${byYear(classes).map(([y, cs])=>`<div class="yeargrp">${y===NO_YEAR ? '' : `<div class="small muted" style="margin-bottom:6px">${esc(y)}</div>`}
+        <div class="forms">${cs.map(k=>`<label class="check"><input type="checkbox" name="lvC" value="${k.id}" ${k.id===mine ? 'checked' : ''}> ${esc(k.name)}</label>`).join('')}</div></div>`).join('')}
+    </fieldset>
+    <label class="field" style="max-width:340px;margin:14px 0 0"><span>Who</span><select id="lvG"><option value="">Everyone (boys and girls)</option><option value="M">Boys only</option><option value="F">Girls only</option></select></label></div>
+    <p style="margin-top:14px"><button class="btn" id="lvOpen">Open the session</button></p></div>
+    <div id="lv"></div>`);
+  const back = () => showStudentHome();
+  $('#back').onclick = () => { if(LIVE) LIVE.api.end(LIVE.id).catch(()=>{}); liveTeacherStop(); back(); };
+  $('#lvOpen').onclick = () => {
+    // your own form first: the workout is the challenge of the first form that has one
+    const ids = $$('[name="lvC"]:checked').map(x=>x.value).sort((a, b)=>(b===mine) - (a===mine));
+    if(!ids.length) return toast('Tick at least one form.');
+    liveOpen(LIVE_API.acct, ids, $('#lvG').value, back);
   };
+}
+
+async function liveOpen(api, ids, g, back){
+  try{
+    const st = await api.start(ids, g);
+    CK.set('live');
+    LIVE = {api, back, id:st.id, members:st.members || []};
+    tabStore.set('bwb-live-done', st.id);   // the TEACHER account does not get its own "I'm ready" alert
+    $('#lvOpts')?.remove();
+    liveTeacherRender(st);
+    LIVE.timer = setInterval(async () => { if(!LIVE) return; try{ liveTeacherRender(await LIVE.api.state(LIVE.id)); }catch(e){} }, 2000);
+  }catch(e){ fail('Could not open the session', e); }
 }
 function liveTeacherRender(st){
   if(!LIVE || !$('#lv')) return;
+  if(st.members) LIVE.members = st.members;
   if(st.status === 'started') return liveTeacherRun(st);
-  const studs = LIVE.studs, ready = new Set(st.ready), n = ready.size;
-  $('#lv').innerHTML = `<div class="panel feature"><div class="muted small">Session open · ${esc(st.plan.title)}</div>
+  const studs = LIVE.members, ready = new Set(st.ready), n = studs.filter(s=>ready.has(s.id)).length, many = (st.classes || []).length > 1;
+  $('#lv').innerHTML = `<div class="panel feature"><div class="muted small">Session open · ${esc(st.plan.title)}${(st.classes || []).length ? ' · ' + esc(st.classes.join(' + ')) : ''}</div>
       <div class="h3">${n} of ${studs.length} ready</div>
       <div class="bar"><i style="width:${studs.length ? Math.round(n/studs.length*100) : 0}%"></i></div>
       <div class="btns"><button class="btn" id="lvGo">Start now</button><button class="btn ghost" id="lvEnd">Cancel the session</button></div></div>
-    <div class="panel" style="margin-top:12px"><ul class="ready">${studs.map(s=>`<li class="${ready.has(s.id) ? 'on' : ''}">${ready.has(s.id) ? '✓' : '…'} ${esc(s.name)}</li>`).join('')}</ul></div>`;
+    <div class="panel" style="margin-top:12px"><ul class="ready">${studs.map(s=>`<li class="${ready.has(s.id) ? 'on' : ''}">${ready.has(s.id) ? '✓' : '…'} ${esc(s.name)}${many ? ` <span class="muted small">${esc(s.cls)}</span>` : ''}</li>`).join('')}</ul></div>`;
   $('#lvGo').onclick = async () => {
     const waiting = studs.length - n;
     if(waiting && !confirm(`${waiting} student${waiting===1 ? ' is' : 's are'} not ready yet. Start anyway? They can still join late.`)) return;
-    try{ liveTeacherRender(await Store.tLiveGo(S.teacher, LIVE.id)); }catch(e){ fail('Could not start', e); }
+    try{ liveTeacherRender(await LIVE.api.go(LIVE.id)); }catch(e){ fail('Could not start', e); }
   };
-  $('#lvEnd').onclick = async () => { const c = LIVE.c; try{ await Store.tLiveEnd(S.teacher, LIVE.id); }catch(e){} liveTeacherStop(); toast('Session cancelled'); showClass(c); };
+  $('#lvEnd').onclick = async () => { const back = LIVE.back; try{ await LIVE.api.end(LIVE.id); }catch(e){} liveTeacherStop(); toast('Session cancelled'); back(); };
 }
 // The teacher's own timer, in step with the class (nothing is saved for the teacher)
 function liveTeacherRun(st){
   if(LIVE.running) return;
   LIVE.running = true; clearInterval(LIVE.timer); LIVE.timer = null;
-  const p = st.plan, c = LIVE.c, id = LIVE.id;
+  const p = st.plan, {api, back, id} = LIVE;
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl}));
   S.planId = p.id;
   startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), noSave:true,
-    onDone: async () => { try{ await Store.tLiveEnd(S.teacher, id); }catch(e){} LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); showClass(c); }});
+    onDone: async () => { try{ await api.end(id); }catch(e){} LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); back(); }});
 }
 
 function liveStudentStart(){ if(LIVE_S) return; LIVE_S = {fast:false, timer:setInterval(livePoll, 5000)}; livePoll(); }
 function liveStudentStop(){ if(LIVE_S?.timer) clearInterval(LIVE_S.timer); LIVE_S = null; $('#liveov')?.remove(); }
 async function livePoll(){
-  if(!S.student || !LIVE_S || $('#player')) return;
+  if(!S.student || !LIVE_S || $('#player') || LIVE) return;
   let st; try{ st = await Store.liveCheck(S.token); }catch(e){ return; }
   if(!LIVE_S || $('#player')) return;
   if(!st || st.status === 'ended' || tabStore.get('bwb-live-done') === st.id || (st.status === 'waiting' && tabStore.get('bwb-live-later') === st.id)){ $('#liveov')?.remove(); return; }
@@ -2784,7 +2839,7 @@ function liveJoin(st){
   const p = st.plan;
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{ const f = S.A?.fams[x.fid]; return {fam:x.fid, lvl:x.free && f ? f.level : x.lvl}; });
-  S.planId = p.id;
+  S.planId = st.my_plan_id || p.id;   // a student from another form gets it counted for their own form's challenge
   startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st)});
 }
 
