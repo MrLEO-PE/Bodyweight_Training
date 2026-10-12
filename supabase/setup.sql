@@ -187,6 +187,7 @@ insert into public.bw_students (class_id, name, is_teacher)
 
 alter table public.bw_live add column if not exists only_gender text check (only_gender in ('M', 'F'));
 alter table public.bw_live add column if not exists class_ids uuid[];
+alter table public.bw_live add column if not exists pulse_at timestamptz;   -- when the teacher started the heart-rate count for everyone
 -- the live session a workout was done in (for the live leaderboard)
 alter table public.bw_sessions add column if not exists live_id uuid references public.bw_live(id) on delete set null;
 create index if not exists bw_sessions_live on public.bw_sessions (live_id) where live_id is not null;   -- all the forms of a live session (class_id is the first)
@@ -971,7 +972,7 @@ create or replace function public.bw__live_state(p_live uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object(
     'id', l.id, 'class_id', l.class_id, 'status', l.status, 'start_at', l.start_at, 'server_now', now(),
-    'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at,
+    'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at, 'pulse_at', l.pulse_at,
     'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = l.class_id or k.id = any(coalesce(l.class_ids, '{}'::uuid[]))), '[]'::jsonb),
     'plan', (select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id), 'only_gender', l.only_gender,
     'size', (select count(*) from bw_students s where not s.is_teacher and bw__live_member(l, s)),
@@ -1037,6 +1038,20 @@ begin
   update bw_live set status = 'ended' where id = p_live;
 end $$;
 
+-- The teacher starts the 30-second heart-rate count for everyone, 3 seconds from now
+create or replace function public.bw__live_pulse(p_live uuid) returns void
+language sql security definer set search_path = public as $$
+  update bw_live set pulse_at = now() + interval '3 seconds' where id = p_live and status = 'started' and pulse_at is null
+$$;
+
+create or replace function public.bw_t_live_pulse(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  perform bw__live_pulse(p_live);
+  return bw__live_state(p_live);
+end $$;
+
 -- The same controls for the TEACHER account of a class (logged in from the student page with the teacher PIN)
 create or replace function public.bw__teacher_acct(p_token text) returns uuid
 language plpgsql security definer set search_path = public, extensions as $$
@@ -1067,6 +1082,14 @@ begin
   perform bw__teacher_acct(p_token);
   perform bw__live_go(p_live);
   return bw__live_state(p_live) || jsonb_build_object('members', bw__live_members(p_live));
+end $$;
+
+create or replace function public.bw_s_live_pulse(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher_acct(p_token);
+  perform bw__live_pulse(p_live);
+  return bw__live_state(p_live);
 end $$;
 
 create or replace function public.bw_s_live_end(p_token text, p_live uuid) returns void
