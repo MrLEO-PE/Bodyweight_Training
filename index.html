@@ -130,6 +130,8 @@ details.panel[open] summary{margin-bottom:12px}
 
 /* player */
 .player{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;background:var(--lc);color:var(--lon);padding:calc(14px + env(safe-area-inset-top,0px)) 20px calc(16px + env(safe-area-inset-bottom,0px));overflow:auto}
+.player.pulse{background:#B3261E;color:#fff}
+.player.pulse .p-time{color:#fff}
 .player.rest{background:var(--card);color:var(--ink);border-top:12px solid var(--lc)}
 .p-bar{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden}
 .p-bar i{display:block;height:100%;background:currentColor}
@@ -539,6 +541,8 @@ function makeCloud(){
     sLiveState: (tok, id) => rpc('bw_s_live_state', {p_token:tok, p_live:id}),
     sLiveGo: (tok, id) => rpc('bw_s_live_go', {p_token:tok, p_live:id}),
     sLiveEnd: (tok, id) => rpc('bw_s_live_end', {p_token:tok, p_live:id}),
+    liveBoard: (tok, id) => rpc('bw_live_board', {p_token:tok, p_live:id}),
+    tLiveBoard: (tok, id) => rpc('bw_t_live_board', {p_token:tok, p_live:id}),
     liveCheck: tok => rpc('bw_live_check', {p_token:tok}),
     liveReady: (tok, id) => rpc('bw_live_ready', {p_token:tok, p_live:id}),
     tSetStar: (tok, cid, sid, msg) => rpc('bw_t_set_star', {p_token:tok, p_class_id:cid, p_student_id:sid || null, p_message:msg || ''}),
@@ -584,7 +588,6 @@ const Local = {
   async mySessions(tok){ const [d,s]=this._stu(tok); return d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst); },
   async addSession(tok, p){
     const [d,s]=this._stu(tok), c=d.classes.find(x=>x.id===s.class_id);
-    if(s.is_teacher) return null;   // TEACHER workouts are never saved
     const {done_at, ...rest} = p;
     const row = {...rest, ...totals(p.exercises), id:uid(), class_id:c.id, class_name:c.name, student_id:s.id, student_name:s.name, created_at:done_at||new Date().toISOString()};
     d.sessions.push(row); this._save(d); return row;
@@ -595,7 +598,7 @@ const Local = {
   async tAddClass(tok, name, code, goal, year){ const d=this._t(tok); if(!name || code.length<3) throw new Error('Enter a class name and a class code of at least 3 characters.'); const c={id:uid(),name,code,weekly_goal:goal,year_group:normYear(year)||null,created_at:new Date().toISOString()}; d.classes.push(c); this._save(d); return c.id; },
   async tUpdateClass(tok, id, name, code, goal, year){ const d=this._t(tok), c=d.classes.find(x=>x.id===id); if(!name) throw new Error('The class needs a name.'); if(code.length<3) throw new Error('The class code needs at least 3 characters.'); if(c){ c.name=name; c.code=code; c.weekly_goal=goal; c.year_group=normYear(year)||null; } this._save(d); },
   async tDeleteClass(tok, id){ const d=this._t(tok); d.classes=d.classes.filter(c=>c.id!==id); d.students=d.students.filter(s=>s.class_id!==id); d.sessions=d.sessions.filter(s=>s.class_id!==id); d.plans=(d.plans||[]).filter(p=>p.class_id!==id); d.tests=(d.tests||[]).filter(t=>t.class_id!==id); this._save(d); },
-  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid && !s.is_teacher).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin,gender:s.gender||null})).sort(byName); },
+  async tStudents(tok, cid){ const d=this._t(tok); return d.students.filter(s=>s.class_id===cid && (!s.is_teacher || d.sessions.some(x=>x.student_id===s.id))).map(s=>({id:s.id,name:s.name,has_pin:!!s.pin,gender:s.gender||null})).sort(byName); },
   async tAddStudents(tok, cid, names, genders){
     const d=this._t(tok), have=new Set(d.students.filter(s=>s.class_id===cid).map(s=>norm(s.name))); let n=0;
     names.forEach((name, i)=>{ const g = normGender(genders?.[i]);
@@ -655,6 +658,13 @@ const Local = {
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
     if(this._liveState(d,L).ready.length >= this._liveState(d,L).size) this._liveGo(L);
     this._save(d); return {...this._liveState(d,L), me_ready:true, my_plan_id:this._plan(d, s.class_id, s.gender||null)?.id || null}; },
+  _liveBoard(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id), ids = L.class_ids || [L.class_id], best = new Map();
+    d.sessions.filter(x=>x.live_id===L.id && x.student_id).forEach(x=>{ const b = best.get(x.student_id); if(!b || pointsOf(x) > pointsOf(b)) best.set(x.student_id, x); });
+    const rows = [...best.values()].map(x=>({id:x.student_id, name:x.student_name, cls:x.class_name, points:pointsOf(x), bpm:x.bpm || null, teacher:!!d.students.find(s=>s.id===x.student_id)?.is_teacher}))
+      .sort((a,b)=>b.points-a.points || a.name.localeCompare(b.name));
+    return {id:L.id, title:p?.title || '', classes:d.classes.filter(c=>ids.includes(c.id)).map(c=>c.name).sort(), size:this._liveState(d,L).size, rows}; },
+  async liveBoard(tok, id){ const [d,s] = this._stu(tok), L = (d.live||[]).find(x=>x.id===id); if(!L || !this._liveIn(L, s)) throw new Error('You were not part of this live challenge.'); return this._liveBoard(d, L); },
+  async tLiveBoard(tok, id){ const d = this._t(tok); return this._liveBoard(d, d.live.find(x=>x.id===id)); },
   async tStudentSessions(tok, sid){ return this._t(tok).sessions.filter(s=>s.student_id===sid).sort(newestFirst); },
   async tClearResults(tok, cid){
     const d=this._t(tok); d.sessions=d.sessions.filter(x=>x.class_id!==cid); d.tests=(d.tests||[]).filter(x=>x.class_id!==cid); d.plans=(d.plans||[]).filter(x=>x.class_id!==cid);
@@ -664,7 +674,7 @@ const Local = {
     const d=this._t(tok), wk=weekStart(Date.now()), w4=Date.now()-28*864e5, at=x=>new Date(x.created_at).getTime(), plans={};
     d.classes.forEach(c=>{ const p=this._plan(d,c.id); if(p) plans[c.id]={id:p.id, title:p.title, due_on:p.due_on||null}; });
     const agg = list => ({n:list.length, points:sum(list.map(pointsOf)), flag:list.map(x=>flagsOf(x)[0]).find(Boolean) || null});
-    const students = d.students.filter(s=>!s.is_teacher).map(s=>{ const mine=d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst), P=this._plan(d,s.class_id,s.gender||null), b=P ? bestOnPlan(mine,P).get(s.id) : null;
+    const students = d.students.filter(s=>!s.is_teacher || d.sessions.some(x=>x.student_id===s.id)).map(s=>{ const mine=d.sessions.filter(x=>x.student_id===s.id).sort(newestFirst), P=this._plan(d,s.class_id,s.gender||null), b=P ? bestOnPlan(mine,P).get(s.id) : null;
       return {id:s.id, name:s.name, class_id:s.class_id, gender:s.gender||null, week:agg(mine.filter(x=>at(x)>=wk)), '4w':agg(mine.filter(x=>at(x)>=w4)), all:agg(mine),
         last:mine[0]?.created_at||null, lvl:mine[0] ? avgLvl(mine[0]) : null, plan_id:P?.id||null, due_on:P?.due_on||null, best:b ? pointsOf(b) : null, best_at:b?.created_at||null, first_at:P ? (firstOnPlan(mine, P).get(s.id) || null) : null}; });
     return {students, plans};
@@ -1243,6 +1253,7 @@ async function showStudentHome(){
     <section data-pane="today" ${tab==='today' ? '' : 'hidden'}>
     ${celebrate}
     ${S.student.is_teacher ? `<div class="panel feature"><div class="muted small">TEACHER</div><div class="h3">Live challenge</div><p style="margin:0 0 10px">Start the challenge with one or more forms at the same time, for example 8B and 8C together.</p><button class="btn" id="liveAcct">Start a live challenge</button></div>` : ''}
+    ${(L => L && Date.now() - L.at < 12*36e5 ? `<p class="small"><button type="button" class="link" id="liveRes">See the results of the live challenge</button></p>` : '')(ls.get('bwb-live-last', null))}
     <p class="weekline"><b>This week:</b> ${wkN} of ${goalN} workouts${wkN >= goalN ? ' ✓' : ''}${X.plan ? ` · challenge ${planDone ? 'done ✓' : X.plan.due_on ? dueText(X.plan.due_on) : 'to do'}` : ''}</p>
     ${recapHTML(S.hist, S.cls.weekly_goal||3)}
     ${starHTML(X.star)}
@@ -1288,6 +1299,7 @@ async function showStudentHome(){
   if($('#notifBtn')) $('#notifBtn').onclick = () => Notification.requestPermission().then(r=>{ toast(r==='granted' ? 'Alerts are on' : 'Alerts are off'); $('#notifBtn')?.parentElement.remove(); });
   liveStudentStart();
   if($('#liveAcct')) $('#liveAcct').onclick = showLiveAcct;
+  if($('#liveRes')) $('#liveRes').onclick = () => showLiveBoard(ls.get('bwb-live-last', {}).id);
   if(!celebrate && !S.student.is_teacher && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
   $('#surp').onclick = () => surpriseWorkout(false);
   $('#quick').onclick = () => surpriseWorkout(true);
@@ -1440,8 +1452,10 @@ async function startWorkout(opts){
     phases.push({type:'work', dur:work, ex:i, round:r});
     if(!(r===rounds-1 && i===ex.length-1)) phases.push({type:'rest', dur:rest, ex:i, round:r});
   });
+  // heart rate: 10 seconds to find the pulse, then 30 seconds counting, always just before the cool-down
+  phases.push({type:'pulseprep', dur:10, ex:0, round:0}, {type:'pulse', dur:30, ex:0, round:0});
   if(pref.cool) COOLDOWN.forEach(([name, cue], i)=>phases.push({type:'cool', dur:30, ex:0, round:0, idx:i, total:COOLDOWN.length, item:{name, cue, half:/halfway/i.test(cue)}}));
-  P = {ex, phases, i:-1, started:Date.now(), paused:false, planId:S.planId, noSave:!!opts.noSave, onDone:opts.onDone};
+  P = {ex, phases, i:-1, started:Date.now(), paused:false, planId:S.planId, noSave:!!opts.noSave, onDone:opts.onDone, liveId:opts.liveId || null};
   if(opts.startAt){ let t = opts.startAt; P.sched = phases.map(ph=>(t += ph.dur*1000)); P.started = opts.startAt; }   // live: every phase ends at the same moment for everyone
   const el=document.createElement('div'); el.id='player'; el.className='player';
   el.setAttribute('role','dialog'); el.setAttribute('aria-label','Workout timer');
@@ -1460,7 +1474,9 @@ function startPhase(i){
   P.end = P.sched ? P.sched[i] : Date.now()+ph.dur*1000; P.shown=null; P.paused=false; P.halfDone=false;
   renderPhase();
   const e = P.ex[ph.ex], nw = P.phases.slice(i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
-  say(ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ne ? `Rest. Next: ${ne.name}` : 'Rest');
+  if(ph.type==='pulseprep'){ beep(880,.3); beep(880,.3,.4); try{ navigator.vibrate?.([400,200,400]); }catch(e){} }
+  const stopCount = P.phases[i-1]?.type==='pulse' ? 'Stop counting. Remember your number. ' : '';
+  say(stopCount + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
 function renderPhase(){
   const ph=P.phases[P.i], e=P.ex[ph.ex], el=$('#player'), N=P.ex.length, R=S.settings.rounds;
@@ -1472,6 +1488,15 @@ function renderPhase(){
       <div class="p-log"><p><b>${esc(e.name)}</b>: ${e.unit==='sec'?'seconds held':'reps done'}</p>
         <div class="stepper"><button type="button" data-d="-1" aria-label="One less">−</button><input id="sv" type="number" inputmode="numeric" min="0" value="${e.results[ph.round]}" aria-label="Your score"><button type="button" data-d="1" aria-label="One more">+</button></div></div>
       ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span><button type="button" class="link small" id="howp">How to do it</button></div>`:''}`;
+  } else if(ph.type==='pulseprep' || ph.type==='pulse'){
+    el.className='player pulse'; el.style.cssText = '';
+    main = ph.type==='pulseprep'
+      ? `<div class="p-phase" id="pph">Heart rate check</div><div class="p-time" id="pt">${ph.dur}</div>
+         <div class="p-name">Stop and find your pulse</div>
+         <p class="p-cue">Put two fingers (not your thumb) on the inside of your wrist, just below your thumb, or on the side of your neck under your jaw. When the next clock starts, count every beat for 30 seconds.</p>`
+      : `<div class="p-phase" id="pph">Count your beats</div><div class="p-time" id="pt">${ph.dur}</div>
+         <div class="p-name">Count every beat</div>
+         <p class="p-cue">Keep your fingers still and count until the clock reaches 0. Remember your number: after the cool-down you type it, and the app doubles it to give your beats per minute (bpm).</p>`;
   } else if(ph.item){
     el.className='player'; el.style.cssText = lc(1);
     main = `<div class="p-phase" id="pph">${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}</div><div class="p-time" id="pt">${ph.dur}</div>
@@ -1485,9 +1510,9 @@ function renderPhase(){
       <button type="button" class="link" id="howp">How to do it</button>`;
   }
   el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
-    <div class="p-top">${ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
+    <div class="p-top">${ph.type.startsWith('pulse') ? '<span>Heart rate</span>' : ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
     <div class="p-main">${main}</div>
-    <div class="p-ctrl">${P.sched ? '<span class="pbtn" style="border-style:dashed">Live with your class</span>' : `<button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>`}${ph.type==='work' || P.sched ? '' : `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : ph.item ? 'Skip' : 'Start now'}</button>`}<button class="pbtn" id="quit">Quit</button></div>`;
+    <div class="p-ctrl">${P.sched ? '<span class="pbtn" style="border-style:dashed">Live with your class</span>' : `<button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>`}${ph.type==='work' || ph.type.startsWith('pulse') || P.sched ? '' : `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : ph.item ? 'Skip' : 'Start now'}</button>`}<button class="pbtn" id="quit">Quit</button></div>`;
   if($('#pp')) $('#pp').onclick = togglePause;
   $('#vc').onclick = () => { ls.set('bwb-voice', !voiceOn()); if(!voiceOn()) try{ speechSynthesis.cancel(); }catch(e){} $('#vc').textContent = voiceOn() ? 'Voice on' : 'Voice off'; };
   if($('#howp')) $('#howp').onclick = () => { const x = ph.type==='rest' ? ne : e; if(!P.paused && !P.sched) togglePause(); showHow(x.fid, x.level); };
@@ -1525,7 +1550,29 @@ function finishWorkout(){
   say('Workout complete. Well done!');
   if(P.noSave){ cleanupPlayer(); return P.onDone && P.onDone(); }
   P.doneAt = new Date().toISOString();
-  cleanupPlayer(); showPulse();
+  cleanupPlayer(); P.phases.some(x=>x.type==='pulse') ? showPulseAsk() : showPulse();
+}
+// The pulse was counted in the timer: just type the number
+// Leaderboard of one live challenge: every form together, updates itself while students save
+async function showLiveBoard(id, back){
+  back = back || (S.student ? showStudentHome : showTeacherHome);
+  setView(`<p><button class="btn ghost small" id="back">Back</button></p><h1>Live challenge results</h1><div id="lvb" class="muted">Loading…</div>`);
+  $('#back').onclick = () => back();
+  let t = null;
+  const draw = async () => {
+    if(!$('#lvb')) return clearInterval(t);
+    let B; try{ B = S.student ? await Store.liveBoard(S.token, id) : await Store.tLiveBoard(S.teacher, id); }catch(e){ if($('#lvb')) $('#lvb').textContent = 'Could not load: ' + e.message; return; }
+    if(!$('#lvb')) return clearInterval(t);
+    const me = S.student?.id, saved = B.rows.filter(r=>!r.teacher).length;
+    $('#lvb').className = '';
+    $('#lvb').innerHTML = `<p class="muted">${esc(B.title || '')}${(B.classes || []).length ? ' · ' + esc(B.classes.join(' + ')) : ''}. ${saved} of ${B.size} students have saved their score. This list updates by itself.</p>
+      ${B.rows.length ? `<div class="panel"><ol class="board">${B.rows.map((r, i)=>`<li class="${r.id===me ? 'me' : ''}"><span class="rk">${i+1}</span><span class="nm">${esc(r.name)} <span class="muted small">${esc(r.cls)}</span>${r.teacher ? ' <em class="tag">Teacher</em>' : ''}</span>${r.bpm ? `<span class="muted small">${r.bpm} bpm</span>` : ''}<b>${num(r.points)}</b></li>`).join('')}</ol></div>` : '<p>No scores yet. They appear here as soon as people save.</p>'}`;
+  };
+  await draw(); t = setInterval(draw, 5000);
+}
+function showPulseAsk(){
+  setView(`<h1>Your heart rate</h1><p class="muted">You counted your pulse for 30 seconds just before the cool-down.</p><div id="pbox"></div>`);
+  pulseAsk();
 }
 
 /* ===== Heart rate: count the pulse for 30 seconds, then type it ===== */
@@ -1555,7 +1602,7 @@ function startPulse(){
   }, 200);
 }
 function pulseAsk(){
-  $('#pbox').innerHTML = `<div class="panel"><div class="h3" style="margin:0 0 8px">Time is up. How many beats did you count?</div>
+  $('#pbox').innerHTML = `<div class="panel"><div class="h3" style="margin:0 0 8px">How many beats did you count in 30 seconds?</div>
     <label class="field" style="max-width:280px"><span>Beats counted in 30 seconds</span><input id="bpmIn" type="number" inputmode="numeric" min="15" max="125" autocomplete="off"></label>
     <p id="bpmOut" style="font-weight:700;min-height:1.5em;margin:0 0 12px"></p>
     <button class="btn" id="pulseOk">Continue</button> <button type="button" class="link" id="pulseAgain">Count again</button></div>`;
@@ -1605,13 +1652,21 @@ function showSummary(){
     if(P.ex.some(e=>e.results.some(v=>v===''))) return toast('Fill in every score.');
     if(!rpe) return toast('Choose how hard it felt, from 1 to 10.');
     const exercises = P.ex.map(e=>({fid:e.fid, family:e.family, name:e.name, level:e.level, unit:e.unit, results:e.results.map(Number)}));
-    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, bpm:P.bpm, done_at:P.doneAt, ...(P.planId ? {plan_id:P.planId} : {}) };
+    const sess = { work_sec:work, rest_sec:rest, rounds, exercises, duration_sec:P.duration, rpe, bpm:P.bpm, done_at:P.doneAt, ...(P.liveId ? {live_id:P.liveId} : {}), ...(P.planId ? {plan_id:P.planId} : {}) };
     const pbs = exercises.filter(e=>prevPB[e.name]!=null && Math.max(...e.results)>prevPB[e.name]).length;
     const msg = `Workout saved: ${num(calcPoints(exercises))} points${pbs?`. ${pbs} new personal best${pbs===1?'':'s'}!`:''}`;
-    if(S.student?.is_teacher){ toast('Well done! Workouts done as TEACHER are not saved.'); return showStudentHome(); }
     $('#save').disabled = true;
     S.before = {...badgeState(), pbs};
-    try{ await Store.addSession(S.token, sess); toast(msg); showStudentHome(); }
+    const live = P.liveId;
+    try{
+      await Store.addSession(S.token, sess); toast(msg);
+      if(live){   // straight to the leaderboard of the live challenge
+        ls.set('bwb-live-last', {id:live, at:Date.now()});
+        if(S.student?.is_teacher) Store.sLiveEnd(S.token, live).catch(()=>{});
+        return showLiveBoard(live);
+      }
+      showStudentHome();
+    }
     catch(e){
       if(isNetErr(e)){ pending.add(sess); toast('No connection. The workout is saved on this device and uploads when you are back online.'); return showStudentHome(); }
       $('#save').disabled=false; fail('Could not save', e);
@@ -1648,7 +1703,7 @@ const TUTORIAL = [
   ['Join your class', 'Scan the QR code on your teacher\'s class sheet, or open the link. It fills in your form and class code for you. Otherwise, choose your form, for example 10C, and type the class code.', 'join'],
   ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked.', 'name'],
   ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge workout is below it, with the date to do it by. Tap "See the workout".', 'home'],
-  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up and ends with stretches.', 'programme'],
+  ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up. After the last exercise it turns red: find your pulse and count your beats for 30 seconds, then the stretches begin.', 'programme'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but you cannot skip an exercise.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. If you are ready early, tap "Skip rest".', 'rest'],
   ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, then save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
@@ -2791,12 +2846,13 @@ function liveTeacherRender(st){
 function liveTeacherRun(st){
   if(LIVE.running) return;
   LIVE.running = true; clearInterval(LIVE.timer); LIVE.timer = null;
+  if(LIVE.api === LIVE_API.acct){ LIVE = null; return liveJoin({...st, my_plan_id:st.plan.id}); }   // TEACHER does it like a student: the score is saved
   const p = st.plan, {api, back, id} = LIVE;
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl}));
   S.planId = p.id;
   startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), noSave:true,
-    onDone: async () => { try{ await api.end(id); }catch(e){} LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); back(); }});
+    onDone: async () => { try{ await api.end(id); }catch(e){} LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); showLiveBoard(id, back); }});
 }
 
 function liveStudentStart(){ if(LIVE_S) return; LIVE_S = {fast:false, timer:setInterval(livePoll, 5000)}; livePoll(); }
@@ -2840,7 +2896,7 @@ function liveJoin(st){
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{ const f = S.A?.fams[x.fid]; return {fam:x.fid, lvl:x.free && f ? f.level : x.lvl}; });
   S.planId = st.my_plan_id || p.id;   // a student from another form gets it counted for their own form's challenge
-  startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st)});
+  startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), liveId:st.id});
 }
 
 /* ===== Getting started, class sheet and teacher guide ===== */

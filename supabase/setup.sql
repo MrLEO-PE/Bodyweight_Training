@@ -186,7 +186,10 @@ insert into public.bw_students (class_id, name, is_teacher)
   on conflict do nothing;
 
 alter table public.bw_live add column if not exists only_gender text check (only_gender in ('M', 'F'));
-alter table public.bw_live add column if not exists class_ids uuid[];   -- all the forms of a live session (class_id is the first)
+alter table public.bw_live add column if not exists class_ids uuid[];
+-- the live session a workout was done in (for the live leaderboard)
+alter table public.bw_sessions add column if not exists live_id uuid references public.bw_live(id) on delete set null;
+create index if not exists bw_sessions_live on public.bw_sessions (live_id) where live_id is not null;   -- all the forms of a live session (class_id is the first)
 
 /* ---------- Lock the tables: no direct access from the browser ---------- */
 
@@ -347,7 +350,6 @@ declare
   plan uuid;
 begin
   select * into s from bw_students where id = sid;
-  if s.is_teacher then return null; end if;
   select * into c from bw_classes where id = s.class_id;
   select pl.id into plan from bw_plans pl where pl.id::text = p_s ->> 'plan_id' and pl.class_id = c.id;
   if jsonb_typeof(ex) is distinct from 'array' or jsonb_array_length(ex) not between 1 and 12 then
@@ -369,7 +371,7 @@ begin
     end;
   end if;
   insert into bw_sessions (class_id, class_name, student_id, student_name, work_sec, rest_sec, rounds,
-                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id, points, bpm)
+                           exercises, total_reps, total_hold_sec, duration_sec, rpe, created_at, plan_id, points, bpm, live_id)
   values (c.id, c.name, s.id, s.name,
           (p_s ->> 'work_sec')::int, (p_s ->> 'rest_sec')::int, (p_s ->> 'rounds')::int, ex,
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
@@ -377,7 +379,8 @@ begin
           coalesce((select sum(least(greatest(v::int, 0), 500)) from jsonb_array_elements(ex) e,
                     jsonb_array_elements_text(e -> 'results') v where e ->> 'unit' = 'sec'), 0),
           least(greatest(coalesce((p_s ->> 'duration_sec')::int, 0), 0), 7200),
-          (p_s ->> 'rpe')::int, done_at, plan, bw__points(ex), nullif(p_s ->> 'bpm', '')::int)
+          (p_s ->> 'rpe')::int, done_at, plan, bw__points(ex), nullif(p_s ->> 'bpm', '')::int,
+          (select l.id from bw_live l where l.id::text = p_s ->> 'live_id' and bw__live_member(l, s)))
   returning * into r;
   return r;
 end $$;
@@ -494,7 +497,9 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   return query select s.id, s.name, s.pin_hash is not null, s.gender from bw_students s
-                where s.class_id = p_class_id and not s.is_teacher order by s.name;
+                where s.class_id = p_class_id
+                  and (not s.is_teacher or exists (select 1 from bw_sessions x where x.student_id = s.id))
+                order by s.is_teacher, s.name;
 end $$;
 
 -- Add students by name, with an optional gender for each (same order as the names).
@@ -673,7 +678,7 @@ begin
           left join lastlvl l on l.student_id = s.id
           left join lateral (select * from ps where ps.class_id = s.class_id and (ps.only_gender is null or ps.only_gender = s.gender)
                               order by (ps.only_gender is null), ps.created_at desc limit 1) p on true
-          left join best b on b.student_id = s.id and b.plan_id = p.id where not s.is_teacher), '[]'::jsonb),
+          left join best b on b.student_id = s.id and b.plan_id = p.id where (not s.is_teacher or a.a_n > 0)), '[]'::jsonb),
       'plans', coalesce((select jsonb_object_agg(q.class_id::text, jsonb_build_object('id', q.id, 'title', q.title, 'due_on', q.due_on))
                            from (select distinct on (class_id) * from ps order by class_id, (only_gender is not null), created_at desc) q), '{}'::jsonb)));
 end $$;
@@ -1087,6 +1092,41 @@ begin
     perform bw__live_go(p_live);
   end if;
   return bw__live_state(p_live) || jsonb_build_object('me_ready', true, 'my_plan_id', bw__plan_for(s.class_id, s.gender) ->> 'id');
+end $$;
+
+-- One leaderboard for a live session: every form together, best workout per person, TEACHER included
+create or replace function public.bw__live_board(p_live uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'id', l.id, 'created_at', l.created_at,
+    'title', (select p.title from bw_plans p where p.id = l.plan_id),
+    'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = l.class_id or k.id = any(coalesce(l.class_ids, '{}'::uuid[]))), '[]'::jsonb),
+    'size', (select count(*) from bw_students s where not s.is_teacher and bw__live_member(l, s)),
+    'rows', coalesce((select jsonb_agg(jsonb_build_object('id', b.student_id, 'name', b.student_name, 'cls', b.class_name, 'points', b.points, 'bpm', b.bpm, 'teacher', b.is_teacher)
+                                       order by b.points desc, b.student_name)
+                        from (select distinct on (x.student_id) x.student_id, x.student_name, x.class_name, x.points, x.bpm, coalesce(s.is_teacher, false) as is_teacher
+                                from bw_sessions x left join bw_students s on s.id = x.student_id
+                               where x.live_id = l.id and x.student_id is not null
+                               order by x.student_id, x.points desc) b), '[]'::jsonb))
+  from bw_live l where l.id = p_live
+$$;
+
+create or replace function public.bw_live_board(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); s bw_students;
+begin
+  select * into s from bw_students where id = sid;
+  if not exists (select 1 from bw_live l where l.id = p_live and bw__live_member(l, s)) then
+    raise exception 'You were not part of this live challenge.';
+  end if;
+  return bw__live_board(p_live);
+end $$;
+
+create or replace function public.bw_t_live_board(p_token text, p_live uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return bw__live_board(p_live);
 end $$;
 
 /* ---------- Imported files ---------- */
