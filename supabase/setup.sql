@@ -205,11 +205,21 @@ create table if not exists public.bw_templates (
   updated_at timestamptz not null default now()
 );
 
+-- A student who forgot their PIN sends a request; the teacher accepts (PIN cleared) or declines
+create table if not exists public.bw_pin_requests (
+  id uuid primary key default gen_random_uuid(),
+  student_id uuid not null references public.bw_students(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'done', 'declined')),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+create unique index if not exists bw_pin_req_pending on public.bw_pin_requests (student_id) where status = 'pending';
+
 /* ---------- Lock the tables: no direct access from the browser ---------- */
 
 do $$ declare t text; p record; begin
   foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens',
-                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports','bw_templates'] loop
+                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports','bw_templates','bw_pin_requests'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on table public.%I from anon, authenticated', t);
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
@@ -1163,6 +1173,81 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
   return bw__live_board(p_live);
+end $$;
+
+/* ---------- Forgotten PIN requests ---------- */
+
+-- From the login page: needs the class code, like logging in. One pending request per student.
+create or replace function public.bw_request_pin_reset(p_student_id uuid, p_code text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare s bw_students; c bw_classes;
+begin
+  select * into s from bw_students where id = p_student_id;
+  if not found or s.is_teacher then return jsonb_build_object('error', 'Name not found. Ask your teacher.'); end if;
+  select * into c from bw_classes where id = s.class_id;
+  if lower(trim(c.code)) <> lower(trim(coalesce(p_code, ''))) then
+    return jsonb_build_object('error', 'That class code is not right. Check with your teacher.');
+  end if;
+  if s.pin_hash is null then return jsonb_build_object('status', 'nopin'); end if;
+  if exists (select 1 from bw_pin_requests where student_id = s.id and status = 'pending') then
+    return jsonb_build_object('status', 'pending');
+  end if;
+  insert into bw_pin_requests (student_id) values (s.id);
+  return jsonb_build_object('status', 'sent');
+end $$;
+
+create or replace function public.bw__pin_requests(p_class uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'student_id', s.id, 'name', s.name, 'class_id', k.id, 'class_name', k.name, 'created_at', r.created_at)
+                            order by r.created_at), '[]'::jsonb)
+    from bw_pin_requests r join bw_students s on s.id = r.student_id join bw_classes k on k.id = s.class_id
+   where r.status = 'pending' and (p_class is null or k.id = p_class)
+$$;
+
+create or replace function public.bw__pin_resolve(p_id uuid, p_accept boolean, p_class uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare r bw_pin_requests; s bw_students;
+begin
+  select * into r from bw_pin_requests where id = p_id and status = 'pending';
+  if not found then return; end if;
+  select * into s from bw_students where id = r.student_id;
+  if p_class is not null and s.class_id <> p_class then raise exception 'This request is for another class.'; end if;
+  if p_accept then
+    update bw_students set pin_hash = null, failed_attempts = 0, locked_until = null where id = s.id;
+    delete from bw_tokens where student_id = s.id;
+  end if;
+  update bw_pin_requests set status = case when p_accept then 'done' else 'declined' end, resolved_at = now() where id = r.id;
+end $$;
+
+create or replace function public.bw_t_pin_requests(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return bw__pin_requests(null);
+end $$;
+
+create or replace function public.bw_t_pin_resolve(p_token text, p_id uuid, p_accept boolean) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  perform bw__pin_resolve(p_id, p_accept, null);
+end $$;
+
+-- The TEACHER account of a class sees and answers the requests of its own class
+create or replace function public.bw_s_pin_requests(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__teacher_acct(p_token); cid uuid;
+begin
+  select class_id into cid from bw_students where id = sid;
+  return bw__pin_requests(cid);
+end $$;
+
+create or replace function public.bw_s_pin_resolve(p_token text, p_id uuid, p_accept boolean) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__teacher_acct(p_token); cid uuid;
+begin
+  select class_id into cid from bw_students where id = sid;
+  perform bw__pin_resolve(p_id, p_accept, cid);
 end $$;
 
 /* ---------- Saved challenges ---------- */

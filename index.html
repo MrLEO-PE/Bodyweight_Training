@@ -561,6 +561,11 @@ function makeCloud(){
     tChallenges: tok => rpc('bw_t_challenges', {p_token:tok}),
     tAddChallenge: (tok, ch) => rpc('bw_t_add_challenge', {p_token:tok, p_c:ch}),
     tDeleteChallenge: (tok, id) => rpc('bw_t_delete_challenge', {p_token:tok, p_id:id}),
+    requestPinReset: (id, code) => rpc('bw_request_pin_reset', {p_student_id:id, p_code:code}),
+    tPinRequests: tok => rpc('bw_t_pin_requests', {p_token:tok}),
+    tPinResolve: (tok, id, ok) => rpc('bw_t_pin_resolve', {p_token:tok, p_id:id, p_accept:ok}),
+    sPinRequests: tok => rpc('bw_s_pin_requests', {p_token:tok}),
+    sPinResolve: (tok, id, ok) => rpc('bw_s_pin_resolve', {p_token:tok, p_id:id, p_accept:ok}),
     tTemplates: tok => rpc('bw_t_templates', {p_token:tok}),
     tSaveTemplate: (tok, t) => rpc('bw_t_save_template', {p_token:tok, p_t:t}),
     tDeleteTemplate: (tok, id) => rpc('bw_t_delete_template', {p_token:tok, p_id:id})
@@ -634,6 +639,20 @@ const Local = {
     return {...i, students:st.length, classes:[...new Set(st.map(s=>d.classes.find(c=>c.id===s.class_id)?.name).filter(Boolean))].sort()}; }).sort((a,b)=>b.created_at.localeCompare(a.created_at)); },
   async tDeleteImport(tok, id){ const d=this._t(tok), gone=d.students.filter(s=>s.import_id===id).map(s=>s.id);
     d.students=d.students.filter(s=>s.import_id!==id); d.sessions.forEach(x=>{ if(gone.includes(x.student_id)) x.student_id=null; }); d.imports=(d.imports||[]).filter(i=>i.id!==id); this._save(d); return gone.length; },
+  async requestPinReset(id, code){ const d=this._load(), s=d.students.find(x=>x.id===id);
+    if(!s || s.is_teacher) return {error:'Name not found. Ask your teacher.'};
+    if(norm(d.classes.find(x=>x.id===s.class_id)?.code)!==norm(code)) return {error:'That class code is not right. Check with your teacher.'};
+    if(!s.pin) return {status:'nopin'};
+    d.pinreq ||= []; if(d.pinreq.some(r=>r.student_id===id && r.status==='pending')) return {status:'pending'};
+    d.pinreq.push({id:uid(), student_id:id, status:'pending', created_at:new Date().toISOString()}); this._save(d); return {status:'sent'}; },
+  _pinReqs(d, cid){ return (d.pinreq||[]).filter(r=>r.status==='pending').map(r=>{ const s=d.students.find(x=>x.id===r.student_id), k=d.classes.find(c=>c.id===s?.class_id);
+    return s && k && (!cid || k.id===cid) ? {id:r.id, student_id:s.id, name:s.name, class_id:k.id, class_name:k.name, created_at:r.created_at} : null; }).filter(Boolean); },
+  _pinResolve(d, id, ok, cid){ const r=(d.pinreq||[]).find(x=>x.id===id && x.status==='pending'); if(!r) return; const s=d.students.find(x=>x.id===r.student_id);
+    if(cid && s.class_id!==cid) throw new Error('This request is for another class.'); if(ok) s.pin=null; r.status = ok ? 'done' : 'declined'; this._save(d); },
+  async tPinRequests(tok){ return this._pinReqs(this._t(tok)); },
+  async tPinResolve(tok, id, ok){ this._pinResolve(this._t(tok), id, ok); },
+  async sPinRequests(tok){ const d=this._acct(tok), [,s]=this._stu(tok); return this._pinReqs(d, s.class_id); },
+  async sPinResolve(tok, id, ok){ const d=this._acct(tok), [,s]=this._stu(tok); this._pinResolve(d, id, ok, s.class_id); },
   async tTemplates(tok){ return [...(this._t(tok).templates || [])].sort((a,b)=>a.title.toLowerCase().localeCompare(b.title.toLowerCase())); },
   async tSaveTemplate(tok, t){ const d=this._t(tok); d.templates ||= []; const x = d.templates.find(y=>y.title.toLowerCase()===t.title.trim().toLowerCase());
     const row = {title:t.title.trim(), note:t.note||'', work_sec:t.work_sec, rest_sec:t.rest_sec, rounds:t.rounds, exercises:t.exercises, updated_at:new Date().toISOString()};
@@ -1008,11 +1027,22 @@ function showStudentName(c, code, list){
     }
     $('#pinBox').innerHTML = !s ? '' : s.has_pin
       ? `<label class="field"><span>Your 4-digit PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>
-         <p class="small muted">Forgot your PIN? Ask your PE teacher to reset it, then choose a new one.</p>`
+         <p class="small" style="margin:0 0 10px"><button type="button" class="link" id="forgot">I forgot my PIN: ask my teacher</button></p><p class="small muted" id="forgotMsg"></p>`
       : `<p class="muted">First time here. Create a 4-digit PIN you will remember.</p>
          <label class="field"><span>New PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>
          <label class="field"><span>Type it again</span><input id="pin2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label>`;
     const p = $('#pin2') || $('#pin'); if(p) p.onkeydown = e => { if(e.key==='Enter') login(); };
+    if($('#forgot')) $('#forgot').onclick = async () => {
+      $('#forgot').disabled = true;
+      try{
+        const r = await Store.requestPinReset(s.id, code);
+        if(r?.error) throw new Error(r.error);
+        $('#forgotMsg').textContent = r.status === 'pending' ? 'Your request is already waiting for your teacher.'
+          : r.status === 'nopin' ? 'You have no PIN yet: choose your name again and create one.'
+          : 'Request sent to your teacher. When they accept it, choose your name again and create a new PIN.';
+      }catch(e){ $('#forgotMsg').textContent = e.message; }
+      $('#forgot').disabled = false;
+    };
   };
   $('#stu').onchange = pinUI; pinUI();
   const login = async () => {
@@ -1212,7 +1242,7 @@ function boardHTML(B, hasPlan){
 function showPlanRun(p){
   const rows = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fid:x.fid, free:!!x.free, lvl: x.free ? (S.A?.fams[x.fid]?.level || x.lvl) : x.lvl, sug:x.lvl}));
   const {work_sec:w, rest_sec:r, rounds:R} = p, n = rows.length;
-  const baseSec = 10 + R*n*w + Math.max(0,R*n-1)*r, minsNow = () => Math.round((baseSec + wcSecs())/60), mins = minsNow();
+  const baseSec = 10 + R*n*w + Math.max(0,R*n-1)*r + 20 + 60, minsNow = () => Math.round((baseSec + wcSecs())/60), mins = minsNow();
   const late = p.due_on && p.due_on < ymd(new Date());
   setView(`<p><button class="btn ghost small" id="back">Back</button></p>
     <h1>${esc(p.title)}</h1>
@@ -1267,7 +1297,7 @@ async function showStudentHome(){
     <div class="tabs" role="tablist" aria-label="Sections">${[['today','Today'],['progress','Me and my class']].map(([k,l])=>`<button type="button" role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('')}</div>
     <section data-pane="today" ${tab==='today' ? '' : 'hidden'}>
     ${celebrate}
-    ${S.student.is_teacher ? `<div class="panel feature"><div class="muted small">TEACHER</div><div class="h3">Live challenge</div><p style="margin:0 0 10px">Start the challenge with one or more forms at the same time, for example 8B and 8C together.</p><button class="btn" id="liveAcct">Start a live challenge</button></div>` : ''}
+    ${S.student.is_teacher ? `<div id="pinreqS"></div><div class="panel feature"><div class="muted small">TEACHER</div><div class="h3">Live challenge</div><p style="margin:0 0 10px">Start the challenge with one or more forms at the same time, for example 8B and 8C together.</p><button class="btn" id="liveAcct">Start a live challenge</button></div>` : ''}
     ${(L => L && Date.now() - L.at < 12*36e5 ? `<p class="small"><button type="button" class="link" id="liveRes">See the results of the live challenge</button></p>` : '')(ls.get('bwb-live-last', null))}
     <p class="weekline"><b>This week:</b> ${wkN} of ${goalN} workouts${wkN >= goalN ? ' ✓' : ''}${X.plan ? ` · challenge ${planDone ? 'done ✓' : X.plan.due_on ? dueText(X.plan.due_on) : 'to do'}` : ''}</p>
     ${recapHTML(S.hist, S.cls.weekly_goal||3)}
@@ -1314,6 +1344,7 @@ async function showStudentHome(){
   if($('#notifBtn')) $('#notifBtn').onclick = () => Notification.requestPermission().then(r=>{ toast(r==='granted' ? 'Alerts are on' : 'Alerts are off'); $('#notifBtn')?.parentElement.remove(); });
   liveStudentStart();
   if($('#liveAcct')) $('#liveAcct').onclick = showLiveAcct;
+  if($('#pinreqS')) showPinRequests('#pinreqS', () => Store.sPinRequests(S.token), (id, ok) => Store.sPinResolve(S.token, id, ok));
   if($('#liveRes')) $('#liveRes').onclick = () => showLiveBoard(ls.get('bwb-live-last', {}).id);
   if(!celebrate && !S.student.is_teacher && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
   $('#surp').onclick = () => surpriseWorkout(false);
@@ -1408,7 +1439,7 @@ function refreshBuilder(){
     }
   });
   const n=S.sel.length, {work,rest,rounds}=S.settings;
-  const mins = Math.round((10 + rounds*n*work + Math.max(0,rounds*n-1)*rest + (S.planFor ? 0 : wcSecs()))/60);
+  const mins = Math.round((10 + rounds*n*work + Math.max(0,rounds*n-1)*rest + 20 + 60 + (S.planFor ? 0 : wcSecs()))/60);
   const cov = REGIONS.map(r=>({r, c:S.sel.filter(x=>FAM[x.fam].region===r).length}));
   $('#dock').innerHTML = `<div class="dock-in">
     <div><b>${n} chosen</b> <span class="muted">${n<minEx() ? `pick ${minEx()-n} more` : `about ${mins} min`}</span>
@@ -1474,9 +1505,10 @@ async function startWorkout(opts){
   for(let r=0;r<rounds;r++) ex.forEach((_,i)=>{
     phases.push({type:'work', dur:work, ex:i, round:r});
     if(!(r===rounds-1 && i===ex.length-1)) phases.push({type:'rest', dur:rest, ex:i, round:r});
+    else phases.push({type:'rest', dur:20, ex:i, round:r, final:true});   // the last exercise has no rest: 20 seconds to write its score
   });
-  // heart rate: 10 seconds to find the pulse, then 30 seconds counting, always just before the cool-down
-  phases.push({type:'pulseprep', dur:10, ex:0, round:0}, {type:'pulse', dur:30, ex:0, round:0});
+  // heart rate: 10 seconds to find the pulse, 30 seconds counting, 20 seconds to write the beats, always just before the cool-down
+  phases.push({type:'pulseprep', dur:10, ex:0, round:0}, {type:'pulse', dur:30, ex:0, round:0}, {type:'pulselog', dur:20, ex:0, round:0});
   if(pref.cool) COOLDOWN.forEach(([name, cue], i)=>phases.push({type:'cool', dur:30, ex:0, round:0, idx:i, total:COOLDOWN.length, item:{name, cue, half:/halfway/i.test(cue)}}));
   P = {ex, phases, i:-1, started:Date.now(), paused:false, planId:S.planId, noSave:!!opts.noSave, onDone:opts.onDone, liveId:opts.liveId || null};
   if(opts.startAt){   // live: every phase ends at the same moment for everyone
@@ -1507,8 +1539,8 @@ function startPhase(i){
   renderPhase();
   const e = P.ex[ph.ex], nw = P.phases.slice(i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
   if(ph.type==='pulseprep'){ beep(880,.3); beep(880,.3,.4); try{ navigator.vibrate?.([400,200,400]); }catch(e){} }
-  const stopCount = P.phases[i-1]?.type==='pulse' ? 'Stop counting. Remember your number. ' : '';
-  say(stopCount + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
+  const stopCount = ph.type==='pulselog' ? 'Stop counting. Write your number now. ' : '';
+  say(stopCount + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
 const canSkip = () => !!S.student?.is_teacher && !P.sched;   // only TEACHER can skip: warm-up, exercises, rests, heart rate, cool-down
 function renderPhase(){
@@ -1517,10 +1549,16 @@ function renderPhase(){
   let main='';
   if(ph.type==='rest'){
     el.className='player rest'; el.style.cssText = lc(ne?ne.level:e.level);
-    main = `<div class="p-phase">Rest</div><div class="p-time" id="pt">${ph.dur}</div>
+    main = `<div class="p-phase">${ph.final ? 'Write your last score' : 'Rest'}</div><div class="p-time" id="pt">${ph.dur}</div>
       <div class="p-log"><p><b>${esc(e.name)}</b>: ${e.unit==='sec'?'seconds held':'reps done'}</p>
         <div class="stepper"><button type="button" data-d="-1" aria-label="One less">−</button><input id="sv" type="number" inputmode="numeric" min="0" value="${e.results[ph.round]}" aria-label="Your score"><button type="button" data-d="1" aria-label="One more">+</button></div></div>
       ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span><button type="button" class="link small" id="howp">How to do it</button></div>`:''}`;
+  } else if(ph.type==='pulselog'){
+    el.className='player pulse'; el.style.cssText = '';
+    main = `<div class="p-phase" id="pph">Write your beats</div><div class="p-time" id="pt">${ph.dur}</div>
+      <div class="p-log"><p><b>Beats you counted in 30 seconds</b></p>
+        <div class="stepper"><button type="button" data-bd="-1" aria-label="One less">−</button><input id="bv" type="number" inputmode="numeric" min="0" max="125" value="${P.beats ?? ''}" placeholder="0" aria-label="Beats counted"><button type="button" data-bd="1" aria-label="One more">+</button></div>
+        <p id="bout" class="small" style="margin:8px 0 0;min-height:1.4em">${P.beats ? P.beats + ' × 2 = ' + P.beats*2 + ' beats per minute' : ''}</p></div>`;
   } else if(ph.type==='pulseprep' || ph.type==='pulse'){
     el.className='player pulse'; el.style.cssText = '';
     const waiting = ph.type==='pulseprep' && !isFinite(P.end);
@@ -1535,7 +1573,7 @@ function renderPhase(){
          <p class="p-cue">Put two fingers (not your thumb) on the inside of your wrist, just below your thumb, or on the side of your neck under your jaw. When the next clock starts, count every beat for 30 seconds.</p>`
       : `<div class="p-phase" id="pph">Count your beats</div><div class="p-time" id="pt">${ph.dur}</div>
          <div class="p-name">Count every beat</div>
-         <p class="p-cue">Keep your fingers still and count until the clock reaches 0. Remember your number: after the cool-down you type it, and the app doubles it to give your beats per minute (bpm).</p>`;
+         <p class="p-cue">Keep your fingers still and count until the clock reaches 0. Remember your number: right after the count you have 20 seconds to type it, and the app doubles it to give your beats per minute (bpm).</p>`;
   } else if(ph.item){
     el.className='player'; el.style.cssText = lc(1);
     main = `<div class="p-phase" id="pph">${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}</div><div class="p-time" id="pt">${ph.dur}</div>
@@ -1563,6 +1601,10 @@ function renderPhase(){
   if($('#skip')) $('#skip').onclick = () => startPhase(P.i+1);
   if($('#skipall')) $('#skipall').onclick = () => { const j = P.phases.findIndex((p, k)=>k > P.i && p.type !== ph.type); startPhase(j < 0 ? P.phases.length : j); };   // TEACHER only
   $('#quit').onclick = () => { if(confirm(P.noSave ? 'Leave the live session timer?' : 'Quit this workout? Nothing will be saved.')){ cleanupPlayer(); if(P.noSave) return P.onDone && P.onDone(); P.planId ? showStudentHome() : showBuilder(); } };
+  if(ph.type==='pulselog'){
+    const inp = $('#bv'), show = () => { const n = parseInt(inp.value, 10) || 0; P.beats = n || null; $('#bout').textContent = n ? n + ' × 2 = ' + n*2 + ' beats per minute' : ''; };
+    inp.oninput = show; el.querySelectorAll('[data-bd]').forEach(b=>b.onclick = () => { inp.value = Math.max(0, (parseInt(inp.value, 10) || 0) + (+b.dataset.bd)); show(); });
+  }
   if(ph.type==='rest'){
     const inp=$('#sv'), set=v=>{ const n=Math.max(0, parseInt(v,10)||0); e.results[ph.round]=n; inp.value=n; };
     inp.oninput = () => { e.results[ph.round] = Math.max(0, parseInt(inp.value,10)||0); };
@@ -1606,7 +1648,10 @@ function finishWorkout(){
   say('Workout complete. Well done!');
   if(P.noSave){ cleanupPlayer(); return P.onDone && P.onDone(); }
   P.doneAt = new Date().toISOString();
-  cleanupPlayer(); P.phases.some(x=>x.type==='pulse') ? showPulseAsk() : showPulse();
+  cleanupPlayer();
+  const n = Math.round(+P.beats);
+  if(n >= 15 && n <= 125){ P.bpm = n * 2; return showSummary(); }   // typed during the 20 seconds after the count
+  P.phases.some(x=>x.type==='pulse') ? showPulseAsk() : showPulse();   // not typed (or skipped): ask now
 }
 // The pulse was counted in the timer: just type the number
 // Leaderboard of one live challenge: every form together, updates itself while students save
@@ -1627,7 +1672,7 @@ async function showLiveBoard(id, back){
   await draw(); t = setInterval(draw, 5000);
 }
 function showPulseAsk(){
-  setView(`<h1>Your heart rate</h1><p class="muted">You counted your pulse for 30 seconds just before the cool-down.</p><div id="pbox"></div>`);
+  setView(`<h1>Your heart rate</h1><p class="muted">You counted your pulse for 30 seconds, but did not write the number in time. Type it now.</p><div id="pbox"></div>`);
   pulseAsk();
 }
 
@@ -1682,7 +1727,7 @@ function showSummary(){
     return best > before ? `<b>New best!</b> <span class="muted">was ${before}</span>` : `<span class="muted">${before}</span>`;
   };
   setView(`<h1>Workout done</h1>
-    <p class="muted">Check your scores, rate how hard it felt, then save. The last exercise has no rest after it, so type its score here.</p>
+    <p class="muted">Check your scores, rate how hard it felt, then save. Your scores are already in: check them here.</p>
     <div class="panel feature"><div class="muted small">Your points. ${POINTS_TEXT}</div><div class="big-time" style="text-align:left;font-size:3rem;margin:4px 0 0" id="pts">0</div></div>
     <p class="small" style="max-width:none">Heart rate: <b>${P.bpm} bpm</b> <button type="button" class="link" id="pulseRedo">Measure again</button></p>
     <div class="tbl-wrap panel"><table>
@@ -1758,13 +1803,16 @@ function showHow(fid, only){
 const TUTORIAL = [
   ['Join your class', 'Scan the QR code on your teacher\'s class sheet, or open the link: it fills in your form and class code for you. Otherwise, choose your form, for example 10C, and type the class code.', 'join'],
   ['Find your name', 'Pick your name. The first time, create a 4-digit PIN you will remember. On your own phone, leave "Keep me logged in" ticked. <b>TEACHER</b> at the end of the list is for your PE teacher.', 'name'],
+  ['Forgot your PIN?', 'On the PIN screen, tap <b>I forgot my PIN: ask my teacher</b>. Your request goes to your teacher, who accepts it. Then choose your name again and create a new PIN. Your workouts and points are kept.', 'forgot'],
   ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge is below it, with the date to do it by: tap <b>See the workout</b>. When there is no challenge, the big button starts a quick workout. Everything else is under <b>More</b>.', 'home'],
   ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up.', 'programme'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but nothing can be skipped: every exercise counts for your points.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. Use the + and − buttons or type the number.', 'rest'],
-  ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. Then the stretches begin. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
+  ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],
+  ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
   ['Count your pulse together', 'In a live challenge, the red screen says <b>Wait</b>: put your fingers on your pulse and keep still. When your teacher presses the button, the 30-second count starts on every screen 3 seconds later. Count every beat until it reaches 0, then the stretches begin.', 'pulse-live'],
-  ['Save your workout', 'Type the beats you counted: the app doubles it to give your beats per minute (bpm). Then check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
+  ['Write your beats', 'As soon as the 30 seconds end, you have <b>20 seconds</b> to type the beats you counted. The app doubles it into your beats per minute (bpm). Then the stretches begin.', 'pulse-log'],
+  ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
   ['Train live with your class', 'When your teacher starts a live challenge, an alert appears on your page: tap <b>I\'m ready</b> and keep the app open. The workout starts for everyone at the same moment. If you are late, tap <b>Join now</b>. After saving, you see one leaderboard with everyone who took part, even from other forms.', 'live'],
   ['Add it to your home screen', 'On your phone, add the app to your home screen so it opens like a normal app and starts quickly. Tap "Add the app to your home screen" on your page for the steps.', 'install'],
   ['See your points and progress', 'Open the <b>Me and my class</b> tab to compare with your class on the leaderboards, help your form win the form cup, collect badges, climb from Rookie to Legend and keep your weekly streak going.', 'board']
@@ -1922,6 +1970,7 @@ async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
     <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="tpl">Saved challenges</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">Teacher tutorial</button></p>
+    <div id="pinreq"></div>
     <div id="ck"></div>
     <details class="panel settings"><summary><b>Add a class by hand</b></summary><div class="h3" style="margin-top:10px">Add a class or form</div>
       <div class="row2"><label class="field"><span>Class or form</span><input id="cn" placeholder="e.g. 10C"></label>
@@ -1995,6 +2044,7 @@ async function showTeacherHome(){
     $$('[data-star]').forEach(b=>b.onclick=()=>{ const id = b.dataset.star; MINE.has(id) ? MINE.delete(id) : MINE.add(id); ls.set('bwb-mine', [...MINE]); drawList(); });
   };
   drawList(); renderCk(classes);
+  showPinRequests('#pinreq', () => Store.tPinRequests(S.teacher), (id, ok) => Store.tPinResolve(S.teacher, id, ok));
   loadChallenges(classes);
 }
 async function loadChallenges(classes){
@@ -2993,6 +3043,30 @@ async function showTemplates(){
     try{ await Store.tDeleteTemplate(S.teacher, t.id); toast('Deleted'); showTemplates(); }catch(e){ fail('Could not delete', e); } });
 }
 
+/* ===== PIN requests: students who forgot their PIN ask the teacher ===== */
+function pinReqHTML(list){
+  return list.length ? `<div class="panel feature"><div class="h3" style="margin:0 0 6px">PIN requests (${list.length})</div>
+    <p class="muted small" style="margin:0 0 8px;max-width:none">These students forgot their PIN. Accept to clear it: they then choose their name and create a new PIN. Their results are kept.</p>
+    <ul class="ready" style="columns:1">${list.map(r=>`<li style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--ink)"><span><b>${esc(r.name)}</b> <span class="muted small">${esc(r.class_name)} · ${fmtTime(r.created_at)}</span></span>
+      <span class="actions"><button class="btn small" data-pr="${r.id}" data-ok="1">Accept</button><button class="btn ghost small" data-pr="${r.id}" data-ok="0">Decline</button></span></li>`).join('')}</ul></div>` : '';
+}
+// Fills a box with the pending requests and keeps it fresh while it is on screen
+async function showPinRequests(boxSel, load, resolve){
+  const box = $(boxSel); if(!box) return;
+  const draw = async () => {
+    const el = $(boxSel); if(!el) return clearInterval(el?.__t);
+    let list; try{ list = await load(); }catch(e){ return; }
+    el.innerHTML = pinReqHTML(list);
+    $$(boxSel + ' [data-pr]').forEach(b=>b.onclick = async () => {
+      const r = list.find(x=>x.id===b.dataset.pr);
+      try{ await resolve(r.id, b.dataset.ok === '1'); toast(b.dataset.ok === '1' ? `PIN cleared for ${r.name}. They create a new one at next login.` : 'Request declined'); draw(); }
+      catch(e){ fail('Could not answer', e); }
+    });
+  };
+  await draw();
+  box.__t = setInterval(() => { if(!document.body.contains(box)) clearInterval(box.__t); else draw(); }, 15000);
+}
+
 /* ===== Getting started, class sheet and teacher guide ===== */
 // Small to-do list on the teacher home page, remembered on this device
 const CK = { get: () => ls.get('bwb-ck', {}), set(k){ const o = this.get(); if(!o[k]){ o[k] = 1; ls.set('bwb-ck', o); } } };
@@ -3039,8 +3113,9 @@ const TEACHER_GUIDE = [
     ['The Classes page', 'Three main buttons: <b>Set a challenge workout</b>, <b>Saved challenges</b> and <b>Results board</b>, plus <b>Import students</b>. Below, the getting-started list ticks itself as you go. Each class card has <b>Open</b>, <b>Class sheet</b>, <b>☆ Mine</b> (puts your forms first on this device) and <b>Download</b>. Less used tools are in the drawers at the bottom.', 'home']]],
   ['Students', [
     ['Import your class lists', 'Press <b>Import students</b> and choose an Excel, LibreOffice or CSV file (from Google Sheets, download it as .xlsx first). The app finds the name, form and gender columns and shows a preview: check it, then import. It creates the forms and moves students who changed form. <b>Files already imported</b> lists every file: press <b>✕</b> to delete an old version and the students who are not in a newer file.', 'import'],
+    ['PIN requests', 'When a student taps <b>I forgot my PIN</b>, a panel <b>PIN requests</b> appears at the top of the Classes page, and in the Today page of the TEACHER account of that class. Press <b>Accept</b> to clear the PIN: the student chooses their name and creates a new one, and their results are kept. Press <b>Decline</b> if it is not them. The list refreshes by itself.', 'pinreq'],
     ['Give students their class code', 'On a class card or class page, press <b>Class sheet</b>. It shows the class code, a QR code and the three login steps: show it on the screen or print it. Students scan it, choose their name and create a 4-digit PIN.', 'sheet'],
-    ['Manage the class list', 'Open a class to see every student with this week\'s workouts, streak and level. You can set each student\'s gender, move a student to another form, or remove them. To reset PINs, use <b>Reset PIN</b> on one student, tick several and press <b>Reset PIN of selected students</b>, or <b>Reset every PIN in this class</b>. Students then create a new PIN at their next login; their results are kept.', 'students']]],
+    ['Manage the class list', 'Open a class to see every student with this week\'s workouts, streak and level. You can set each student\'s gender, move a student to another form, or remove them. To reset PINs yourself, use <b>Reset PIN</b> on one student, tick several and press <b>Reset PIN of selected students</b>, or <b>Reset every PIN in this class</b>. Students then create a new PIN at their next login; their results are kept.', 'students']]],
   ['Challenges', [
     ['Set a challenge workout', 'Press <b>Set a challenge workout</b>. Give it a title, an optional message and a due date. Pick 4 to 12 exercises: by default students choose their own level, untick it to fix a level. Choose <b>For</b>: everyone, boys only or girls only. Tick the forms or a whole year group. <b>Keep it in Saved challenges</b> is ticked so you can use it again. Press <b>Publish</b>.', 'builder'],
     ['Saved challenges', 'Every challenge you keep is listed here for all PE teachers, with its exercises and duration. Press <b>Use</b> to give it to other forms (you can still change the date, levels and exercises), or <b>✕</b> to delete it. To save a challenge without giving it to anyone, tick no form and press Publish.', 'saved'],
