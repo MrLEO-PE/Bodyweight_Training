@@ -1477,7 +1477,7 @@ async function publishPlan(){
 const WARMUP = [['March on the spot', 'Lift your knees gently and swing your arms.'], ['Arm circles', 'Big circles with straight arms, forwards then backwards.'],
   ['Hip circles', 'Hands on hips, draw big slow circles with your hips.'], ['Leg swings', 'Hold a wall and swing one leg forward and back. Switch legs at halfway.']];
 const COOLDOWN = [['Standing quad stretch', 'Hold one foot behind you, knees together. Switch legs at halfway.'], ['Hamstring stretch', 'One heel forward, toes up, lean forward with a straight back. Switch legs at halfway.'],
-  ['Chest and shoulder stretch', 'Pull one arm across your chest. Switch arms at halfway.'], ['Deep breathing', 'Stand tall. Breathe in slowly through your nose and out through your mouth.']];
+  ['Chest and shoulder stretch', 'Pull one arm across your chest. Switch arms at halfway.']];
 const wcPref = () => ({warm:1, cool:1, ...ls.get('bwb-wc', {})});
 const wcSecs = () => { const p = wcPref(); return (p.warm ? WARMUP.length*30 : 0) + (p.cool ? COOLDOWN.length*30 : 0); };
 const wcSeg = (k, label) => `<span><label>${label}</label><span class="seg" role="group" aria-label="${label}">${[1,0].map(v=>`<button type="button" data-wc="${k}" data-val="${v}" aria-pressed="${wcPref()[k]===v}">${v ? 'On' : 'Off'}</button>`).join('')}</span></span>`;
