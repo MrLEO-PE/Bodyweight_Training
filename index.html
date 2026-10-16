@@ -135,6 +135,9 @@ details.panel[open] summary{margin-bottom:12px}
 .player.rest{background:var(--card);color:var(--ink);border-top:12px solid var(--lc)}
 .p-bar{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden}
 .p-bar i{display:block;height:100%;background:currentColor}
+.p-stages{display:flex;gap:6px;margin-top:10px;overflow:hidden}
+.p-stages span{flex:1 1 0;min-width:0;padding:5px 4px;font-size:.78rem;font-weight:600;text-align:center;border-bottom:3px solid transparent;opacity:.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-stages span[aria-current]{opacity:1;border-bottom-color:currentColor;flex:2.2 1 0}
 .p-top{display:flex;justify-content:space-between;font-weight:600;margin-top:10px}
 .p-main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;width:100%;max-width:560px;margin:0 auto;padding:12px 0}
 .p-phase{font-family:var(--display);font-weight:700;font-size:1.5rem}
@@ -1472,8 +1475,7 @@ async function publishPlan(){
 /* ===== Workout player ===== */
 // Warm-up before and cool-down after the workout: 30 seconds each, on by default, remembered on this device
 const WARMUP = [['March on the spot', 'Lift your knees gently and swing your arms.'], ['Arm circles', 'Big circles with straight arms, forwards then backwards.'],
-  ['Hip circles', 'Hands on hips, draw big slow circles with your hips.'], ['Leg swings', 'Hold a wall and swing one leg forward and back. Switch legs at halfway.'],
-  ['Slow squats', 'Slow bodyweight squats, chest up, knees over your toes.']];
+  ['Hip circles', 'Hands on hips, draw big slow circles with your hips.'], ['Leg swings', 'Hold a wall and swing one leg forward and back. Switch legs at halfway.']];
 const COOLDOWN = [['Standing quad stretch', 'Hold one foot behind you, knees together. Switch legs at halfway.'], ['Hamstring stretch', 'One heel forward, toes up, lean forward with a straight back. Switch legs at halfway.'],
   ['Chest and shoulder stretch', 'Pull one arm across your chest. Switch arms at halfway.'], ['Deep breathing', 'Stand tall. Breathe in slowly through your nose and out through your mouth.']];
 const wcPref = () => ({warm:1, cool:1, ...ls.get('bwb-wc', {})});
@@ -1510,7 +1512,10 @@ async function startWorkout(opts){
   // heart rate: 10 seconds to find the pulse, 30 seconds counting, 20 seconds to write the beats, always just before the cool-down
   phases.push({type:'pulseprep', dur:10, ex:0, round:0}, {type:'pulse', dur:30, ex:0, round:0}, {type:'pulselog', dur:20, ex:0, round:0});
   if(pref.cool) COOLDOWN.forEach(([name, cue], i)=>phases.push({type:'cool', dur:30, ex:0, round:0, idx:i, total:COOLDOWN.length, item:{name, cue, half:/halfway/i.test(cue)}}));
-  P = {ex, phases, i:-1, started:Date.now(), paused:false, planId:S.planId, noSave:!!opts.noSave, onDone:opts.onDone, liveId:opts.liveId || null};
+  // the stages: Warm-up, the challenge of the day (its name), Heart rate, Cool-down
+  const title = opts.title || (S.planId && S.extras?.plan?.id===S.planId ? S.extras.plan.title : '') || 'Bodyweight challenge';
+  const stages = [pref.warm ? 'Warm-up' : null, title, 'Heart rate', pref.cool ? 'Cool-down' : null].filter(Boolean);
+  P = {title, stages, firstWork:phases.findIndex(x=>x.type==='work'), warmOn:!!pref.warm, ex, phases, i:-1, started:Date.now(), paused:false, planId:S.planId, noSave:!!opts.noSave, onDone:opts.onDone, liveId:opts.liveId || null};
   if(opts.startAt){   // live: every phase ends at the same moment for everyone
     let t = opts.startAt; const prep = phases.findIndex(x=>x.type==='pulseprep');
     // the heart-rate count waits for the teacher: its time is set when the teacher presses Start
@@ -1540,8 +1545,13 @@ function startPhase(i){
   const e = P.ex[ph.ex], nw = P.phases.slice(i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
   if(ph.type==='pulseprep'){ beep(880,.3); beep(880,.3,.4); try{ navigator.vibrate?.([400,200,400]); }catch(e){} }
   const stopCount = ph.type==='pulselog' ? 'Stop counting. Write your number now. ' : '';
-  say(stopCount + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? `Get ready. First: ${e.name}` : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
+  const stageIntro = i === P.firstWork ? `Challenge. ${P.title}. ` : '';
+  say(stopCount + stageIntro + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? (P.warmOn ? 'Get ready. Warm-up first.' : `Get ready. ${P.title}. First: ${e.name}`) : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
+const stageOf = ph => { const names = P.stages, w = P.warmOn ? 1 : 0;
+  return ph.type==='warm' || (ph.type==='ready' && P.warmOn) ? 0 : ph.type==='ready' || ph.type==='work' || ph.type==='rest' ? w : ph.type.startsWith('pulse') ? w + 1 : w + 2; };
+const stagesHTML = ph => { const cur = stageOf(ph);
+  return `<div class="p-stages" aria-label="Stages of the workout">${P.stages.map((n, k)=>`<span${k===cur ? ' aria-current="step"' : ''}>${k+1}. ${esc(n)}</span>`).join('')}</div>`; };
 const canSkip = () => !!S.student?.is_teacher && !P.sched;   // only TEACHER can skip: warm-up, exercises, rests, heart rate, cool-down
 function renderPhase(){
   const ph=P.phases[P.i], e=P.ex[ph.ex], el=$('#player'), N=P.ex.length, R=S.settings.rounds;
@@ -1553,6 +1563,13 @@ function renderPhase(){
       <div class="p-log"><p><b>${esc(e.name)}</b>: ${e.unit==='sec'?'seconds held':'reps done'}</p>
         <div class="stepper"><button type="button" data-d="-1" aria-label="One less">−</button><input id="sv" type="number" inputmode="numeric" min="0" value="${e.results[ph.round]}" aria-label="Your score"><button type="button" data-d="1" aria-label="One more">+</button></div></div>
       ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span><button type="button" class="link small" id="howp">How to do it</button></div>`:''}`;
+  } else if(ph.type==='ready'){
+    el.className='player'; el.style.cssText = lc(P.warmOn ? 1 : e.level);
+    main = P.warmOn
+      ? `<div class="p-phase" id="pph">Get ready</div><div class="p-time" id="pt">${ph.dur}</div>
+         <div class="p-name">Warm-up first</div><p class="p-cue">${WARMUP.length} easy moves, 30 seconds each, to warm up your body. Then your challenge: <b>${esc(P.title)}</b>.</p>`
+      : `<div class="p-phase" id="pph">Get ready</div><div class="p-time" id="pt">${ph.dur}</div>
+         <div class="p-name">${esc(P.title)}</div><p class="p-cue">First exercise: <b>${esc(e.name)}</b>, Level ${e.level}.</p>`;
   } else if(ph.type==='pulselog'){
     el.className='player pulse'; el.style.cssText = '';
     main = `<div class="p-phase" id="pph">Write your beats</div><div class="p-time" id="pt">${ph.dur}</div>
@@ -1587,7 +1604,8 @@ function renderPhase(){
       <button type="button" class="link" id="howp">How to do it</button>`;
   }
   el.innerHTML = `<div class="p-bar"><i style="width:${Math.round(P.i/P.phases.length*100)}%"></i></div>
-    <div class="p-top">${ph.type.startsWith('pulse') ? '<span>Heart rate</span>' : ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item || ph.type.startsWith('pulse') ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
+    ${stagesHTML(ph)}
+    <div class="p-top">${ph.type.startsWith('pulse') ? '<span>Heart rate</span>' : ph.type==='ready' && P.warmOn ? '<span>Get ready</span>' : ph.item ? `<span>${ph.type==='warm' ? 'Warm-up' : 'Cool-down'} ${ph.idx+1} of ${ph.total}</span>` : `<span>Round ${ph.round+1} of ${R}</span>`}<button type="button" class="link small" id="vc" style="color:inherit">${voiceOn() ? 'Voice on' : 'Voice off'}</button>${ph.item || ph.type.startsWith('pulse') || (ph.type==='ready' && P.warmOn) ? '<span></span>' : `<span>Exercise ${ph.ex+1} of ${N}</span>`}</div>
     <div class="p-main">${main}</div>
     <div class="p-ctrl">${P.sched ? '<span class="pbtn" style="border-style:dashed">Live with your class</span>' : `<button class="pbtn" id="pp">${P.paused?'Resume':'Pause'}</button>`}${canSkip() ? `<button class="pbtn" id="skip">${ph.type==='rest' ? 'Skip rest' : ph.type==='work' ? 'Skip exercise' : ph.type.startsWith('pulse') ? 'Skip heart rate' : ph.item ? 'Skip' : 'Start now'}</button>` : ''}<button class="pbtn" id="quit">Quit</button></div>`;
   if($('#pp')) $('#pp').onclick = togglePause;
@@ -1806,6 +1824,7 @@ const TUTORIAL = [
   ['Forgot your PIN?', 'On the PIN screen, tap <b>I forgot my PIN: ask my teacher</b>. Your request goes to your teacher, who accepts it. Then choose your name again and create a new PIN. Your workouts and points are kept.', 'forgot'],
   ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge is below it, with the date to do it by: tap <b>See the workout</b>. When there is no challenge, the big button starts a quick workout. Everything else is under <b>More</b>.', 'home'],
   ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up.', 'programme'],
+  ['Four stages', 'The strip at the top of the timer shows where you are: <b>1. Warm-up</b>, <b>2. the challenge of the day</b> (its name is shown), <b>3. Heart rate</b> and <b>4. Cool-down</b>. The first screen tells you what comes first.', 'ready'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but nothing can be skipped: every exercise counts for your points.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. Use the + and − buttons or type the number.', 'rest'],
   ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],
@@ -2963,7 +2982,7 @@ function liveTeacherRun(st){
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fam:x.fid, lvl:x.lvl}));
   S.planId = p.id;
-  startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), noSave:true, liveId:id, leader:api, getState:() => api.state(id),
+  startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), noSave:true, liveId:id, title:p.title, leader:api, getState:() => api.state(id),
     pulseAt:st.pulse_at ? liveLocal(st, st.pulse_at) : null,
     onDone: async () => { try{ await api.end(id); }catch(e){} LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); showLiveBoard(id, back); }});
 }
@@ -3009,7 +3028,7 @@ function liveJoin(st, leader){
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{ const f = S.A?.fams[x.fid]; return {fam:x.fid, lvl:x.free && f ? f.level : x.lvl}; });
   S.planId = st.my_plan_id || p.id;   // a student from another form gets it counted for their own form's challenge
-  startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), liveId:st.id, leader:leader || null,
+  startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), liveId:st.id, title:p.title, leader:leader || null,
     getState:() => Store.liveCheck(S.token), pulseAt:st.pulse_at ? liveLocal(st, st.pulse_at) : null});
 }
 
