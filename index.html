@@ -1546,7 +1546,7 @@ function startPhase(i){
   if(ph.type==='pulseprep'){ beep(880,.3); beep(880,.3,.4); try{ navigator.vibrate?.([400,200,400]); }catch(e){} }
   const stopCount = ph.type==='pulselog' ? 'Stop counting. Write your number now. ' : '';
   const stageIntro = i === P.firstWork ? `Challenge. ${P.title}. ` : '';
-  say(stopCount + stageIntro + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? (P.warmOn ? 'Get ready. Warm-up first.' : `Get ready. ${P.title}. First: ${e.name}`) : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
+  say(stopCount + stageIntro + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? (P.warmOn ? `Get ready. Warm-up first. ${WARMUP[0][0]}.` : `Get ready. ${P.title}. First: ${e.name}`) : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
 const stageOf = ph => { const names = P.stages, w = P.warmOn ? 1 : 0;
   return ph.type==='warm' || (ph.type==='ready' && P.warmOn) ? 0 : ph.type==='ready' || ph.type==='work' || ph.type==='rest' ? w : ph.type.startsWith('pulse') ? w + 1 : w + 2; };
@@ -1567,7 +1567,7 @@ function renderPhase(){
     el.className='player'; el.style.cssText = lc(P.warmOn ? 1 : e.level);
     main = P.warmOn
       ? `<div class="p-phase" id="pph">Get ready</div><div class="p-time" id="pt">${ph.dur}</div>
-         <div class="p-name">Warm-up first</div><p class="p-cue">${WARMUP.length} easy moves, 30 seconds each, to warm up your body. Then your challenge: <b>${esc(P.title)}</b>.</p>`
+         <div class="p-name">Warm-up first</div><p class="p-sub">First move: <b>${esc(WARMUP[0][0])}</b></p><p class="p-cue">${esc(WARMUP[0][1])}</p><p class="p-cue small">${WARMUP.length} easy moves, 30 seconds each. Then your challenge: <b>${esc(P.title)}</b>.</p>`
       : `<div class="p-phase" id="pph">Get ready</div><div class="p-time" id="pt">${ph.dur}</div>
          <div class="p-name">${esc(P.title)}</div><p class="p-cue">First exercise: <b>${esc(e.name)}</b>, Level ${e.level}.</p>`;
   } else if(ph.type==='pulselog'){
