@@ -2,7 +2,7 @@
    Lets the app open without a connection (after the first visit) and install on the home screen.
    Pages are fetched from the network first, so a new version arrives as soon as you are online.
    Data requests to Supabase are never cached: they always go to the network. */
-const VERSION = 'bwb-v2';
+const VERSION = 'bwb-v3';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 const LIBS = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
