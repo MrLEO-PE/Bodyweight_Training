@@ -1213,6 +1213,11 @@ function say(t){
   try{ if(!voiceOn() || !('speechSynthesis' in window)) return; speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(t); u.lang = 'en-GB'; u.rate = 1.05; speechSynthesis.speak(u); }catch(e){}
 }
+// A loud, sporty voice for the start of the challenge: "Are you ready?", 10 to 1, "GO!"
+function shout(t, queue){
+  try{ if(!voiceOn() || !('speechSynthesis' in window)) return; if(!queue) speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t); u.lang = 'en-GB'; u.volume = 1; u.pitch = 1.45; u.rate = 1.12; speechSynthesis.speak(u); }catch(e){}
+}
 // Teacher: scores that look too high to be true, worth a check
 function flagsOf(s){
   const out = [];
@@ -1245,7 +1250,7 @@ function boardHTML(B, hasPlan){
 function showPlanRun(p){
   const rows = p.exercises.filter(x=>FAM[x.fid]).map(x=>({fid:x.fid, free:!!x.free, lvl: x.free ? (S.A?.fams[x.fid]?.level || x.lvl) : x.lvl, sug:x.lvl}));
   const {work_sec:w, rest_sec:r, rounds:R} = p, n = rows.length;
-  const baseSec = 10 + R*n*w + Math.max(0,R*n-1)*r + 20 + 60, minsNow = () => Math.round((baseSec + wcSecs())/60), mins = minsNow();
+  const baseSec = 22 + R*n*w + Math.max(0,R*n-1)*r + 20 + 60, minsNow = () => Math.round((baseSec + wcSecs())/60), mins = minsNow();
   const late = p.due_on && p.due_on < ymd(new Date());
   setView(`<p><button class="btn ghost small" id="back">Back</button></p>
     <h1>${esc(p.title)}</h1>
@@ -1442,7 +1447,7 @@ function refreshBuilder(){
     }
   });
   const n=S.sel.length, {work,rest,rounds}=S.settings;
-  const mins = Math.round((10 + rounds*n*work + Math.max(0,rounds*n-1)*rest + 20 + 60 + (S.planFor ? 0 : wcSecs()))/60);
+  const mins = Math.round((22 + rounds*n*work + Math.max(0,rounds*n-1)*rest + 20 + 60 + (S.planFor ? 0 : wcSecs()))/60);
   const cov = REGIONS.map(r=>({r, c:S.sel.filter(x=>FAM[x.fam].region===r).length}));
   $('#dock').innerHTML = `<div class="dock-in">
     <div><b>${n} chosen</b> <span class="muted">${n<minEx() ? `pick ${minEx()-n} more` : `about ${mins} min`}</span>
@@ -1502,8 +1507,10 @@ async function startWorkout(opts){
   keepAwake();
   const {work,rest,rounds} = S.settings;
   const ex = S.sel.map(s=>{ const f=FAM[s.fam], l=f.levels[s.lvl-1]; return {fid:f.id, family:f.name, name:l.n, level:l.lvl, unit:l.u, cue:l.c, half:/halfway/i.test(l.c), results:Array(rounds).fill(null)}; });
-  const phases = [{type:'ready', dur:10, ex:0, round:0}], pref = opts.wc || wcPref();
+  const pref = opts.wc || wcPref();
+  const phases = [{type:'ready', dur:pref.warm ? 10 : 12, ex:0, round:0, countdown:!pref.warm}];
   if(pref.warm) WARMUP.forEach(([name, cue], i)=>phases.push({type:'warm', dur:30, ex:0, round:0, idx:i, total:WARMUP.length, item:{name, cue, half:/halfway/i.test(cue)}}));
+  if(pref.warm) phases.push({type:'go', dur:12, ex:0, round:0, countdown:true});   // after the warm-up: ARE YOU READY? 10... 1... GO!
   for(let r=0;r<rounds;r++) ex.forEach((_,i)=>{
     phases.push({type:'work', dur:work, ex:i, round:r});
     if(!(r===rounds-1 && i===ex.length-1)) phases.push({type:'rest', dur:rest, ex:i, round:r});
@@ -1545,11 +1552,13 @@ function startPhase(i){
   const e = P.ex[ph.ex], nw = P.phases.slice(i+1).find(p=>p.type==='work'), ne = nw ? P.ex[nw.ex] : null;
   if(ph.type==='pulseprep'){ beep(880,.3); beep(880,.3,.4); try{ navigator.vibrate?.([400,200,400]); }catch(e){} }
   const stopCount = ph.type==='pulselog' ? 'Stop counting. Write your number now. ' : '';
-  const stageIntro = i === P.firstWork ? `Challenge. ${P.title}. ` : '';
+  if(ph.countdown){ shout('Are you ready?'); return; }   // loud and sporty, then 10 ... 1 (see tick)
+  if(i === P.firstWork){ shout('GO!'); shout(e.unit==='sec' ? `Hold! ${e.name}` : e.name, true); return; }
+  const stageIntro = '';
   say(stopCount + stageIntro + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? (P.warmOn ? `Get ready. Warm-up first. ${WARMUP[0][0]}.` : `Get ready. ${P.title}. First: ${e.name}`) : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
 const stageOf = ph => { const names = P.stages, w = P.warmOn ? 1 : 0;
-  return ph.type==='warm' || (ph.type==='ready' && P.warmOn) ? 0 : ph.type==='ready' || ph.type==='work' || ph.type==='rest' ? w : ph.type.startsWith('pulse') ? w + 1 : w + 2; };
+  return ph.type==='warm' || (ph.type==='ready' && P.warmOn) ? 0 : ph.type==='ready' || ph.type==='go' || ph.type==='work' || ph.type==='rest' ? w : ph.type.startsWith('pulse') ? w + 1 : w + 2; };
 const stagesHTML = ph => { const cur = stageOf(ph);
   return `<div class="p-stages" aria-label="Stages of the workout">${P.stages.map((n, k)=>`<span${k===cur ? ' aria-current="step"' : ''}>${k+1}. ${esc(n)}</span>`).join('')}</div>`; };
 const canSkip = () => !!S.student?.is_teacher && !P.sched;   // only TEACHER can skip: warm-up, exercises, rests, heart rate, cool-down
@@ -1563,6 +1572,10 @@ function renderPhase(){
       <div class="p-log"><p><b>${esc(e.name)}</b>: ${e.unit==='sec'?'seconds held':'reps done'}</p>
         <div class="stepper"><button type="button" data-d="-1" aria-label="One less">−</button><input id="sv" type="number" inputmode="numeric" min="0" value="${e.results[ph.round]}" aria-label="Your score"><button type="button" data-d="1" aria-label="One more">+</button></div></div>
       ${ne?`<div class="p-next"><span class="muted">Next</span><b>${esc(ne.name)}</b><span class="lvtag" style="${lc(ne.level)}">Level ${ne.level}</span><button type="button" class="link small" id="howp">How to do it</button></div>`:''}`;
+  } else if(ph.countdown){
+    el.className='player'; el.style.cssText = lc(e.level);
+    main = `<div class="p-phase" id="pph">${ph.dur - 0 > 10 && Math.ceil((P.end - Date.now())/1000) > 10 ? 'Are you ready?' : 'Get ready'}</div><div class="p-time" id="pt">${Math.max(0, Math.ceil((P.end - Date.now())/1000))}</div>
+      <div class="p-name">${esc(P.title)}</div><p class="p-cue">First exercise: <b>${esc(e.name)}</b>, Level ${e.level}.</p>`;
   } else if(ph.type==='ready'){
     el.className='player'; el.style.cssText = lc(P.warmOn ? 1 : e.level);
     main = P.warmOn
@@ -1636,7 +1649,8 @@ function tick(){
     return;
   }
   const ph=P.phases[P.i], ms=P.end-Date.now(), s=Math.max(0,Math.ceil(ms/1000));
-  if(s!==P.shown){ P.shown=s; const t=$('#pt'); if(t) t.textContent=s; if(s>0 && s<=3) beep(660,.1); }
+  if(s!==P.shown){ P.shown=s; const t=$('#pt'); if(t) t.textContent=s;
+    if(ph.countdown){ const l=$('#pph'); if(l) l.textContent = s > 10 ? 'Are you ready?' : 'Get ready'; if(s>=1 && s<=10) shout(String(s)); } if(s>0 && s<=3) beep(660,.1); }
   if(((ph.type==='work' && P.ex[ph.ex].half) || (ph.item && ph.item.half)) && !P.halfDone && s<=Math.floor(ph.dur/2) && s>3){
     P.halfDone=true; beep(880,.12); beep(880,.12,.2);
     const t=$('#pph'); if(t) t.textContent='Switch sides'; say('Switch sides');
@@ -1825,6 +1839,7 @@ const TUTORIAL = [
   ['Your page', 'The first line shows your week, for example "2 of 3 workouts". Your teacher\'s challenge is below it, with the date to do it by: tap <b>See the workout</b>. When there is no challenge, the big button starts a quick workout. Everything else is under <b>More</b>.', 'home'],
   ['Check the workout', 'The exercises run in this order. Where you see four levels, choose the one that challenges you. Tap "How to" if you are not sure how an exercise is done. Then press Start. The timer begins with a short warm-up.', 'programme'],
   ['Four stages', 'The strip at the top of the timer shows where you are: <b>1. Warm-up</b>, <b>2. the challenge of the day</b> (its name is shown), <b>3. Heart rate</b> and <b>4. Cool-down</b>. The first screen tells you what comes first.', 'ready'],
+  ['Are you ready?', 'After the warm-up, the coach shouts <b>"Are you ready?"</b>, counts <b>10 to 1</b> out loud, then screams <b>"GO!"</b>. Use these seconds to take your place and get ready for the first exercise. Turn the sound on!', 'go'],
   ['Follow the timer', 'Do the exercise until the timer ends and count your reps (or hold). You can pause, but nothing can be skipped: every exercise counts for your points.', 'work'],
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. Use the + and − buttons or type the number.', 'rest'],
   ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],

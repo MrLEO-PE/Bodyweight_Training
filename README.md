@@ -15,7 +15,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
 - **Rank titles:** Rookie, Athlete (1,000 points), Pro (4,000) and Legend (10,000), with a progress bar to the next rank.
 - **Badges:** 12 to collect (first workout, streaks, level up, all-rounder, early bird, record breaker...). New badges, level-ups, ranks and personal bests are celebrated with confetti.
 - **Weekly recap** of last week, **star of the week** chosen by the teacher, **Surprise me** and **Quick 8-minute** workouts at the student's own levels, and a **voice coach** in the timer (can be turned off).
-- **Tutorial:** 16 steps with screenshots (images in [tutorial/](tutorial/)), from joining the class to the heart-rate check, live challenges and points. It opens from the first screen and from the student's More menu.
+- **Tutorial:** 17 steps with screenshots (images in [tutorial/](tutorial/)), from joining the class to the heart-rate check, live challenges and points. It opens from the first screen and from the student's More menu.
 - **Timer details:** full-screen with beeps, a "switch sides" signal on one-sided exercises, and score logging during rest. The screen stays awake.
 - **Progress:** a weekly goal set by the teacher, a streak of weeks with the goal reached, a chart of average level over time, personal bests, and a table of their current level for each movement.
 - **Challenge:** a movement is marked **Ready for Level N** when:
@@ -25,6 +25,7 @@ The whole app is one file, [index.html](index.html). Data is stored in Supabase.
   "Repeat with level-ups" rebuilds the last workout with those movements moved up one level.
 - **Two tabs:** **Today** (this week, the challenge, one main button, and a **More** menu with the other ways to train) and **Me and my class** (rank, levels, badges, fitness checks, leaderboards, form cup, class challenges). The last tab is remembered.
 - **Clear stages in the timer:** a strip at the top shows the four stages: **1. Warm-up**, **2. the challenge of the day** (shown with its name, for example "Core & legs week"), **3. Heart rate** and **4. Cool-down**, with the current one highlighted. The first screen says "Warm-up first" (or names the challenge and its first exercise when the warm-up is off). The warm-up is 4 moves and the cool-down 3 stretches, 30 seconds each. Students cannot skip them; only TEACHER can.
+- **Are you ready? 10 to 1, GO!:** before the first exercise (after the warm-up, or as the first screen when there is none) the voice coach shouts "Are you ready?" in a loud, high, sporty voice, counts from 10 to 1, then screams "GO!" followed by the exercise name. It lasts 12 seconds and is part of the shared clock in live sessions. The voice can be turned off with the Voice button.
 - **Install as an app:** add the app to the home screen (iPhone, Android or computer) so it opens full screen. Once opened online, it also starts without a connection. Workouts done offline upload later.
 - **Offline:** if the connection drops, the workout is saved on the device and uploads later with its original date.
 - **Stay logged in:** students can stay logged in on their own device for 30 days.
