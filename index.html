@@ -1305,7 +1305,7 @@ async function showStudentHome(){
     <div class="tabs" role="tablist" aria-label="Sections">${[['today','Today'],['progress','Me and my class']].map(([k,l])=>`<button type="button" role="tab" data-tab="${k}" aria-selected="${k===tab}">${l}</button>`).join('')}</div>
     <section data-pane="today" ${tab==='today' ? '' : 'hidden'}>
     ${celebrate}
-    ${S.student.is_teacher ? `<div id="pinreqS"></div><div class="panel feature"><div class="muted small">TEACHER</div><div class="h3">Live challenge</div><p style="margin:0 0 10px">Start the challenge with one or more forms at the same time, for example 8B and 8C together.</p><button class="btn" id="liveAcct">Start a live challenge</button></div>` : ''}
+    ${S.student.is_teacher ? `<div id="liveresumeS"></div><div id="pinreqS"></div><div class="panel feature"><div class="muted small">TEACHER</div><div class="h3">Live challenge</div><p style="margin:0 0 10px">Start the challenge with one or more forms at the same time, for example 8B and 8C together.</p><button class="btn" id="liveAcct">Start a live challenge</button></div>` : ''}
     ${(L => L && Date.now() - L.at < 12*36e5 ? `<p class="small"><button type="button" class="link" id="liveRes">See the results of the live challenge</button></p>` : '')(ls.get('bwb-live-last', null))}
     <p class="weekline"><b>This week:</b> ${wkN} of ${goalN} workouts${wkN >= goalN ? ' ✓' : ''}${X.plan ? ` · challenge ${planDone ? 'done ✓' : X.plan.due_on ? dueText(X.plan.due_on) : 'to do'}` : ''}</p>
     ${recapHTML(S.hist, S.cls.weekly_goal||3)}
@@ -1352,6 +1352,7 @@ async function showStudentHome(){
   if($('#notifBtn')) $('#notifBtn').onclick = () => Notification.requestPermission().then(r=>{ toast(r==='granted' ? 'Alerts are on' : 'Alerts are off'); $('#notifBtn')?.parentElement.remove(); });
   liveStudentStart();
   if($('#liveAcct')) $('#liveAcct').onclick = showLiveAcct;
+  if($('#liveresumeS')) showLiveResume('#liveresumeS', 'acct', showStudentHome);
   if($('#pinreqS')) showPinRequests('#pinreqS', () => Store.sPinRequests(S.token), (id, ok) => Store.sPinResolve(S.token, id, ok));
   if($('#liveRes')) $('#liveRes').onclick = () => showLiveBoard(ls.get('bwb-live-last', {}).id);
   if(!celebrate && !S.student.is_teacher && !ls.get('bwb-tour-' + S.student.id, 0) && !$('#tourov')) showTour();
@@ -1557,6 +1558,15 @@ function startPhase(i){
   const stageIntro = '';
   say(stopCount + stageIntro + (ph.type==='pulseprep' ? 'Stop. Heart rate check. Put two fingers on your wrist or your neck and find your pulse.' : ph.type==='pulse' ? 'Start counting your heart beats now.' : ph.type==='pulselog' ? '' : ph.item ? `${ph.type==='warm' ? 'Warm-up' : 'Cool-down'}. ${ph.item.name}` : ph.type==='ready' ? (P.warmOn ? `Get ready. Warm-up first. ${WARMUP[0][0]}.` : `Get ready. ${P.title}. First: ${e.name}`) : ph.type==='work' ? (e.unit==='sec' ? `Hold! ${e.name}` : `Go! ${e.name}`) : ph.final ? 'Write your last score now.' : ne ? `Rest. Next: ${ne.name}` : 'Rest'));
 }
+// If something breaks while the full-screen timer is up, show a way out (reloading brings the live session back: see the rejoin offers)
+function timerCrashed(e){
+  console.error(e);
+  const el = $('#player'); if(!el || $('#crash')) return;
+  el.insertAdjacentHTML('beforeend', '<div id="crash" role="alert" style="position:absolute;left:12px;right:12px;bottom:84px;background:#fff;color:#15202B;border-radius:12px;padding:12px;text-align:center;z-index:5"><b>Something went wrong.</b><br>Your session is safe. <button type="button" class="btn small" id="crashGo">Reload and rejoin</button></div>');
+  $('#crashGo').onclick = () => location.reload();
+}
+window.addEventListener('error', e => timerCrashed(e.error || e.message));
+window.addEventListener('unhandledrejection', e => timerCrashed(e.reason));
 const stageOf = ph => { const names = P.stages, w = P.warmOn ? 1 : 0;
   return ph.type==='warm' || (ph.type==='ready' && P.warmOn) ? 0 : ph.type==='ready' || ph.type==='go' || ph.type==='work' || ph.type==='rest' ? w : ph.type.startsWith('pulse') ? w + 1 : w + 2; };
 const stagesHTML = ph => { const cur = stageOf(ph);
@@ -1631,7 +1641,7 @@ function renderPhase(){
   if($('#howp')) $('#howp').onclick = () => { const x = ph.type==='rest' ? ne : e; if(!P.paused && !P.sched) togglePause(); showHow(x.fid, x.level); };
   if($('#skip')) $('#skip').onclick = () => startPhase(P.i+1);
   if($('#skipall')) $('#skipall').onclick = () => { const j = P.phases.findIndex((p, k)=>k > P.i && p.type !== ph.type); startPhase(j < 0 ? P.phases.length : j); };   // TEACHER only
-  $('#quit').onclick = () => { if(confirm(P.noSave ? 'Leave the live session timer?' : 'Quit this workout? Nothing will be saved.')){ cleanupPlayer(); if(P.noSave) return P.onDone && P.onDone(); P.planId ? showStudentHome() : showBuilder(); } };
+  $('#quit').onclick = () => { if(confirm(P.noSave ? 'Leave the live session timer?' : 'Quit this workout? Nothing will be saved.')){ if(P.liveId) tabStore.set('bwb-live-declined', P.liveId); cleanupPlayer(); if(P.noSave) return P.onDone && P.onDone(); P.planId ? showStudentHome() : showBuilder(); } };
   if(ph.type==='pulselog'){
     const inp = $('#bv'), show = () => { const n = parseInt(inp.value, 10) || 0; P.beats = n || null; $('#bout').textContent = n ? n + ' × 2 = ' + n*2 + ' beats per minute' : ''; };
     inp.oninput = show; el.querySelectorAll('[data-bd]').forEach(b=>b.onclick = () => { inp.value = Math.max(0, (parseInt(inp.value, 10) || 0) + (+b.dataset.bd)); show(); });
@@ -1676,6 +1686,7 @@ function cleanupPlayer(){
   try{ wake?.release(); }catch(e){} wake=null;
 }
 function finishWorkout(){
+  if(P.liveId) tabStore.set('bwb-live-finished', P.liveId);
   P.duration = Math.round((Date.now()-P.started)/1000);
   say('Workout complete. Well done!');
   if(P.noSave){ cleanupPlayer(); return P.onDone && P.onDone(); }
@@ -1795,7 +1806,6 @@ function showSummary(){
       await Store.addSession(S.token, sess); toast(msg);
       if(live){   // straight to the leaderboard of the live challenge
         ls.set('bwb-live-last', {id:live, at:Date.now()});
-        if(S.student?.is_teacher) Store.sLiveEnd(S.token, live).catch(()=>{});
         return showLiveBoard(live);
       }
       showStudentHome();
@@ -2004,6 +2014,7 @@ async function showTeacherHome(){
   header(); S.planFor = null;
   setView(`<h1>Classes</h1>
     <p class="btns"><button class="btn" id="newPlanAll">Set a challenge workout</button><button class="btn" id="tpl">Saved challenges</button><button class="btn" id="board">Results board</button><button class="btn" id="imp">Import students</button><button class="btn ghost small" id="lib">Exercise list, levels 1 to 4</button><button class="btn ghost small" id="tguide">Teacher tutorial</button></p>
+    <div id="liveresume"></div>
     <div id="pinreq"></div>
     <div id="ck"></div>
     <details class="panel settings"><summary><b>Add a class by hand</b></summary><div class="h3" style="margin-top:10px">Add a class or form</div>
@@ -2079,6 +2090,7 @@ async function showTeacherHome(){
   };
   drawList(); renderCk(classes);
   showPinRequests('#pinreq', () => Store.tPinRequests(S.teacher), (id, ok) => Store.tPinResolve(S.teacher, id, ok));
+  showLiveResume('#liveresume', 'teacher', showTeacherHome);
   loadChallenges(classes);
 }
 async function loadChallenges(classes){
@@ -2905,6 +2917,9 @@ function deadlineHTML(st, ss, P){
 let LIVE = null;     // teacher side
 let LIVE_S = null;   // student side
 const serverOffset = st => new Date(st.server_now).getTime() - Date.now();
+const liveOver = st => { const p = st.plan, n = p.exercises.length;
+  const secs = 24 + (st.warm ? WARMUP.length*30 : 0) + p.rounds*n*(p.work_sec + p.rest_sec) + 20 + 60 + (st.cool ? COOLDOWN.length*30 : 0) + 180 + 300;   // 3 min for the teacher to start the count, 5 min margin
+  return Date.now() > liveStartLocal(st) + secs*1000; };
 const liveStartLocal = st => new Date(st.start_at).getTime() - serverOffset(st);
 const liveLocal = (st, iso) => new Date(iso).getTime() - serverOffset(st);
 
@@ -2965,7 +2980,8 @@ async function liveOpen(api, ids, g, back){
     const st = await api.start(ids, g);
     CK.set('live');
     LIVE = {api, back, id:st.id, members:st.members || []};
-    tabStore.set('bwb-live-done', st.id);   // the TEACHER account does not get its own "I'm ready" alert
+    tabStore.set('bwb-live-declined', st.id);   // the TEACHER account does not get its own "I'm ready" alert
+    ls.set('bwb-live-last-t', {id:st.id, who:api === LIVE_API.acct ? 'acct' : 'teacher', at:Date.now()});   // so a reload can bring it back
     $('#lvOpts')?.remove();
     liveTeacherRender(st);
     LIVE.timer = setInterval(async () => { if(!LIVE) return; try{ liveTeacherRender(await LIVE.api.state(LIVE.id)); }catch(e){} }, 2000);
@@ -2999,7 +3015,7 @@ function liveTeacherRun(st){
   S.planId = p.id;
   startWorkout({wc:{warm:st.warm ? 1 : 0, cool:st.cool ? 1 : 0}, startAt:liveStartLocal(st), noSave:true, liveId:id, title:p.title, leader:api, getState:() => api.state(id),
     pulseAt:st.pulse_at ? liveLocal(st, st.pulse_at) : null,
-    onDone: async () => { try{ await api.end(id); }catch(e){} LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); showLiveBoard(id, back); }});
+    onDone: async () => { LIVE = null; S.planId = null; toast('Live session finished. Students are saving their scores.'); showLiveBoard(id, back); }});
 }
 
 function liveStudentStart(){ if(LIVE_S) return; LIVE_S = {fast:false, timer:setInterval(livePoll, 5000)}; livePoll(); }
@@ -3008,7 +3024,7 @@ async function livePoll(){
   if(!S.student || !LIVE_S || $('#player') || LIVE) return;
   let st; try{ st = await Store.liveCheck(S.token); }catch(e){ return; }
   if(!LIVE_S || $('#player')) return;
-  if(!st || st.status === 'ended' || tabStore.get('bwb-live-done') === st.id || (st.status === 'waiting' && tabStore.get('bwb-live-later') === st.id)){ $('#liveov')?.remove(); return; }
+  if(!st || st.status === 'ended' || tabStore.get('bwb-live-declined') === st.id || tabStore.get('bwb-live-finished') === st.id || (st.status === 'started' && liveOver(st)) || (st.status === 'waiting' && tabStore.get('bwb-live-later') === st.id)){ $('#liveov')?.remove(); return; }
   if(LIVE_S.fast !== !!st.me_ready){ clearInterval(LIVE_S.timer); LIVE_S.fast = !!st.me_ready; LIVE_S.timer = setInterval(livePoll, st.me_ready ? 2000 : 5000); }
   if(st.status === 'started' && st.me_ready) return liveJoin(st);   // everyone starts together
   liveOverlay(st);
@@ -3035,7 +3051,7 @@ function liveOverlay(st){
   };
   if($('#lvLater')) $('#lvLater').onclick = () => { tabStore.set('bwb-live-later', st.id); ov.remove(); };
   if($('#lvJoin')) $('#lvJoin').onclick = () => liveJoin(st);
-  if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-done', st.id); ov.remove(); };
+  if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-declined', st.id); ov.remove(); };
 }
 function liveJoin(st, leader){
   tabStore.set('bwb-live-done', st.id); $('#liveov')?.remove();
@@ -3075,6 +3091,21 @@ async function showTemplates(){
   $$('[data-tdel]').forEach(b=>b.onclick = async () => { const t = list.find(x=>x.id===b.dataset.tdel);
     if(!confirm(`Delete "${t.title}" from Saved challenges? Challenges already given to forms are not affected.`)) return;
     try{ await Store.tDeleteTemplate(S.teacher, t.id); toast('Deleted'); showTemplates(); }catch(e){ fail('Could not delete', e); } });
+}
+
+/* ===== Live session recovery for the teacher (teacher page and TEACHER account) ===== */
+async function showLiveResume(boxSel, who, back){
+  const box = $(boxSel), L = ls.get('bwb-live-last-t', null);
+  if(!box || !L || L.who !== who || Date.now() - L.at > 3*36e5) return;
+  const api = who === 'acct' ? LIVE_API.acct : LIVE_API.teacher;
+  let st; try{ st = await api.state(L.id); }catch(e){ return; }
+  if(!$(boxSel) || !st?.plan) return;
+  const running = st.status === 'started' && !liveOver(st);
+  $(boxSel).innerHTML = `<div class="panel feature"><div class="muted small">Live challenge · ${esc((st.classes || []).join(' + '))}</div>
+    <div class="h3">${running ? 'A live session is running' : 'Your last live challenge'}</div>
+    <div class="btns">${running ? '<button class="btn" id="lvRejoin">Rejoin the timer</button>' : ''}<button class="btn ${running ? 'ghost' : ''}" id="lvRes">See the results</button></div></div>`;
+  $('#lvRes').onclick = () => showLiveBoard(L.id, back);
+  if($('#lvRejoin')) $('#lvRejoin').onclick = () => { LIVE = {api, back, id:L.id, members:[]}; liveTeacherRun(st); };
 }
 
 /* ===== PIN requests: students who forgot their PIN ask the teacher ===== */
@@ -3157,7 +3188,7 @@ const TEACHER_GUIDE = [
   ['Live challenges', [
     ['Train together from a class page', 'During a video call or a lesson, press <b>Train together (live)</b> on the challenge panel, then <b>Open the session</b>. Students get an alert and tap <b>I\'m ready</b>; you see the list fill up. It starts for everyone when all are ready, or when you press <b>Start now</b>. After the last exercise everyone finds their pulse and waits: press <b>Start the 30-second count for everyone</b> on your timer. Ask students to open the app first: the alert only reaches those who have it open.', 'live'],
     ['Start the heart-rate count', 'After the last exercise everyone finds their pulse on the red screen. When they are ready, press <b>Start the 30-second count for everyone</b> on your timer: the count starts 3 seconds later on every screen, then the cool-down follows together. If you never press it, it starts by itself after 3 minutes.', 'pulse'],
-    ['Several forms together, as TEACHER', 'Log in as <b>TEACHER</b> in your form and press <b>Start a live challenge</b>. Tick the forms that take part (for example 8B and 8C) and choose everyone, boys or girls. You do the workout too, and your score is saved and shown with a <b>Teacher</b> tag. Keep your own form ticked. Give all the forms the same challenge beforehand so everyone does the same workout.', 'acct'],
+    ['Several forms together, as TEACHER', 'Log in as <b>TEACHER</b> in your form and press <b>Start a live challenge</b>. Tick the forms that take part (for example 8B and 8C) and choose everyone, boys or girls. You do the workout too, and your score is saved and shown with a <b>Teacher</b> tag. Keep your own form ticked. Give all the forms the same challenge beforehand so everyone does the same workout. If your phone crashes or the page reloads, log in as TEACHER again: <b>Rejoin the timer</b> puts you back in step with the class, and <b>See the results</b> opens the live leaderboard.', 'acct'],
     ['The live leaderboard', 'After the workout everyone counts their pulse, saves their score and sees one leaderboard for the whole live challenge: all the forms together, with each name\'s form, bpm and points. It updates as others save. Each result also counts for the student\'s own form\'s challenge.', 'lvboard']]],
   ['Results', [
     ['Results board', 'One page with every student. Filter by year group, form, gender, period (this week, last 4 weeks, the challenge, all time) and challenge status (on time, late, not done, missed). <b>Only students with nothing done</b> and <b>Copy names</b> help you follow up. The By class table compares forms, and <b>Download this view</b> gives an Excel file.', 'board'],
