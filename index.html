@@ -538,11 +538,13 @@ function makeCloud(){
     tImportTag: (tok, imp, cid, names) => rpc('bw_t_import_tag', {p_token:tok, p_import:imp, p_class_id:cid, p_names:names}),
     tImports: tok => rpc('bw_t_imports', {p_token:tok}),
     tDeleteImport: (tok, id) => rpc('bw_t_delete_import', {p_token:tok, p_import:id}),
-    tLiveStart: (tok, cid, w, c, g) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c, p_gender:g || null}),
+    tLiveStart: (tok, cid, w, c, g, l) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c, p_gender:g || null, p_label:l || null}),
+    tLiveList: tok => rpc('bw_t_live_list', {p_token:tok}),
+    sLiveList: tok => rpc('bw_s_live_list', {p_token:tok}),
     tLiveState: (tok, id) => rpc('bw_t_live_state', {p_token:tok, p_live:id}),
     tLiveGo: (tok, id) => rpc('bw_t_live_go', {p_token:tok, p_live:id}),
     tLiveEnd: (tok, id) => rpc('bw_t_live_end', {p_token:tok, p_live:id}),
-    sLiveStart: (tok, ids, w, c, g) => rpc('bw_s_live_start', {p_token:tok, p_class_ids:ids, p_warm:w, p_cool:c, p_gender:g || null}),
+    sLiveStart: (tok, ids, w, c, g, l) => rpc('bw_s_live_start', {p_token:tok, p_class_ids:ids, p_warm:w, p_cool:c, p_gender:g || null, p_label:l || null}),
     sLiveState: (tok, id) => rpc('bw_s_live_state', {p_token:tok, p_live:id}),
     sLiveGo: (tok, id) => rpc('bw_s_live_go', {p_token:tok, p_live:id}),
     sLiveEnd: (tok, id) => rpc('bw_s_live_end', {p_token:tok, p_live:id}),
@@ -666,25 +668,28 @@ const Local = {
   _liveIn(L, s){ return (L.class_ids || [L.class_id]).includes(s.class_id) && (!L.only_gender || s.gender===L.only_gender || !!s.is_teacher); },
   _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id), ids = L.class_ids || [L.class_id];
     const members = d.students.filter(s=>!s.is_teacher && this._liveIn(L, s)).map(s=>({id:s.id, name:s.name, cls:d.classes.find(c=>c.id===s.class_id)?.name || ''})).sort((a,b)=>a.cls.localeCompare(b.cls) || a.name.localeCompare(b.name));
-    return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at, pulse_at:L.pulse_at || null,
+    return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at, pulse_at:L.pulse_at || null, label:L.label || null,
       classes:d.classes.filter(c=>ids.includes(c.id)).map(c=>c.name).sort(), plan:p ? {...p} : null, only_gender:L.only_gender||null,
       size:members.length, members, ready:L.ready.filter(id=>!d.students.find(s=>s.id===id)?.is_teacher)}; },
   _liveGo(L){ if(L.status==='waiting'){ L.status='started'; L.start_at=new Date(Date.now()+5000).toISOString(); } },
-  _liveStart(d, ids, w, c, g){ g = g || null;
+  _liveStart(d, ids, w, c, g, label){ g = g || null;
     if(!ids.length) throw new Error('Choose at least one class.');
     const P = ids.map(id=>this._plan(d, id, g)).find(Boolean); if(!P) throw new Error('Set a challenge workout for this class first.');
     (d.live ||= []).forEach(x=>{ if(x.status!=='ended' && (x.class_ids || [x.class_id]).some(id=>ids.includes(id))) x.status='ended'; });
-    const L={id:uid(), class_id:ids[0], class_ids:[...ids], only_gender:g, plan_id:P.id, warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
+    const L={id:uid(), class_id:ids[0], class_ids:[...ids], only_gender:g, label:(label || '').trim().slice(0, 60) || null, plan_id:P.id, warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
     d.live.push(L); this._save(d); return this._liveState(d,L); },
   _livePulse(L){ if(L && L.status==='started' && !L.pulse_at) L.pulse_at = new Date(Date.now()+3000).toISOString(); },
   async tLivePulse(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._livePulse(L); this._save(d); return this._liveState(d,L); },
   async sLivePulse(tok, id){ const d=this._acct(tok), L=d.live.find(x=>x.id===id); this._livePulse(L); this._save(d); return this._liveState(d,L); },
   _acct(tok){ const [d,s] = this._stu(tok); if(!s.is_teacher) throw new Error('Only TEACHER can do this.'); return d; },
-  async tLiveStart(tok, cid, w, c, g){ return this._liveStart(this._t(tok), [cid], w, c, g); },
+  async tLiveStart(tok, cid, w, c, g, l){ return this._liveStart(this._t(tok), [cid], w, c, g, l); },
+  _liveList(d){ return (d.live||[]).filter(x=>x.status!=='ended' && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst).map(L=>this._liveState(d, L)); },
+  async tLiveList(tok){ return this._liveList(this._t(tok)); },
+  async sLiveList(tok){ return this._liveList(this._acct(tok)); },
   async tLiveState(tok, id){ const d=this._t(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
   async tLiveGo(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async tLiveEnd(tok, id){ const d=this._t(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
-  async sLiveStart(tok, ids, w, c, g){ return this._liveStart(this._acct(tok), ids, w, c, g); },
+  async sLiveStart(tok, ids, w, c, g, l){ return this._liveStart(this._acct(tok), ids, w, c, g, l); },
   async sLiveState(tok, id){ const d=this._acct(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
   async sLiveGo(tok, id){ const d=this._acct(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async sLiveEnd(tok, id){ const d=this._acct(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
@@ -2926,13 +2931,42 @@ const liveLocal = (st, iso) => new Date(iso).getTime() - serverOffset(st);
 function liveTeacherStop(){ if(LIVE?.timer) clearInterval(LIVE.timer); LIVE = null; }
 // A session is run from the teacher page, or from the TEACHER account of a class (which can bring several forms together)
 const LIVE_API = {
-  teacher: { start:(ids, g) => Store.tLiveStart(S.teacher, ids[0], !!wcPref().warm, !!wcPref().cool, g), state:id => Store.tLiveState(S.teacher, id),
+  teacher: { start:(ids, g, label) => Store.tLiveStart(S.teacher, ids[0], !!wcPref().warm, !!wcPref().cool, g, label), list:() => Store.tLiveList(S.teacher), state:id => Store.tLiveState(S.teacher, id),
              go:id => Store.tLiveGo(S.teacher, id), end:id => Store.tLiveEnd(S.teacher, id), pulse:id => Store.tLivePulse(S.teacher, id) },
-  acct:    { start:(ids, g) => Store.sLiveStart(S.token, ids, !!wcPref().warm, !!wcPref().cool, g), state:id => Store.sLiveState(S.token, id),
+  acct:    { start:(ids, g, label) => Store.sLiveStart(S.token, ids, !!wcPref().warm, !!wcPref().cool, g, label), list:() => Store.sLiveList(S.token), state:id => Store.sLiveState(S.token, id),
              go:id => Store.sLiveGo(S.token, id), end:id => Store.sLiveEnd(S.token, id), pulse:id => Store.sLivePulse(S.token, id) }
 };
 const liveIntro = `<p class="muted">Everyone does the challenge workout at the same time as you, for example during a video call. Each student taps <b>I'm ready</b> on their own page. The workout starts for everyone when all are ready, or when you press <b>Start now</b>. Students who are late can still join, in step with the others.</p>
     <p class="small">Ask students to open the app now: the alert only reaches students who have it open. The session includes a short warm-up and cool-down.</p>`;
+
+// Sessions that are open now: the teacher picks the one to run (manage the lobby, rejoin the timer, or see the results)
+const liveName = st => esc(st.label || ((st.classes || []).join(' + ') + (st.only_gender === 'M' ? ' · boys' : st.only_gender === 'F' ? ' · girls' : '')));
+const liveOpenNow = list => list.filter(st => st.plan && !(st.status === 'started' && liveOver(st)));
+function liveListHTML(list){
+  return list.map(st=>`<div class="panel" style="margin-top:10px"><div class="between"><div><b>${liveName(st)}</b>
+      <div class="muted small">${esc(st.plan.title)} · ${esc((st.classes || []).join(' + '))}${st.label ? '' : ''} · opened ${fmtTime(st.created_at)}</div></div>
+      <span class="tag">${st.status === 'started' ? 'Running' : st.ready.length + ' of ' + st.size + ' ready'}</span></div>
+    <div class="btns" style="margin-top:8px">${st.status === 'started' ? `<button class="btn small" data-lvj="${st.id}">Rejoin the timer</button>` : `<button class="btn small" data-lvm="${st.id}">Open this session</button>`}<button class="btn ghost small" data-lvr="${st.id}">Results</button></div></div>`).join('');
+}
+function liveListWire(boxSel, api, back, list){
+  $$(boxSel + ' [data-lvm]').forEach(b=>b.onclick = () => { const st = list.find(x=>x.id===b.dataset.lvm); showLiveLobby(api, st, back); });
+  $$(boxSel + ' [data-lvj]').forEach(b=>b.onclick = () => { const st = list.find(x=>x.id===b.dataset.lvj); LIVE = {api, back, id:st.id, members:st.members || []}; liveTeacherRun(st); });
+  $$(boxSel + ' [data-lvr]').forEach(b=>b.onclick = () => showLiveBoard(b.dataset.lvr, back));
+}
+// Fills a box with the open sessions (nothing if there are none)
+async function showLiveList(boxSel, api, back, title){
+  let list; try{ list = liveOpenNow(await api.list()); }catch(e){ return; }
+  const box = $(boxSel); if(!box) return;
+  box.innerHTML = list.length ? `<h2 style="margin-top:6px">${title}</h2><p class="muted small" style="margin:0;max-width:none">Pick the session you want to run, or open a new one below.</p>${liveListHTML(list)}` : '';
+  liveListWire(boxSel, api, back, list);
+}
+// The lobby of a session that already exists (opened by you earlier, or by a colleague)
+function showLiveLobby(api, st, back){
+  liveTeacherStop();
+  setView(`<p><button class="btn ghost small" id="back">Back</button></p><h1>Train together</h1><p class="muted">${liveName(st)} · ${esc(st.plan.title)}</p><div id="lv"></div>`);
+  $('#back').onclick = () => { liveTeacherStop(); back(); };
+  liveWatch(api, st, back);
+}
 
 // Teacher page: one class (or its boys / girls)
 function showLiveTeacher(c, g){
@@ -2940,12 +2974,15 @@ function showLiveTeacher(c, g){
   liveTeacherStop();
   setView(`<p><button class="btn ghost small" id="back">Back to ${esc(c.name)}</button></p>
     <h1>Train together${g ? (g==='M' ? ' (boys)' : ' (girls)') : ''}</h1>
+    <div id="lvList"></div>
     ${liveIntro}
-    <p style="margin-top:14px" id="lvOpts"><button class="btn" id="lvOpen">Open the session</button></p>
+    <div id="lvOpts"><label class="field" style="max-width:420px"><span>Session name (optional)</span><input id="lvName" maxlength="60" placeholder="e.g. ${esc(c.name)} ${g==='M' ? 'boys' : g==='F' ? 'girls' : ''} with Mr Leo" autocomplete="off"></label>
+      <p style="margin-top:14px"><button class="btn" id="lvOpen">Open a new session</button></p></div>
     <div id="lv"></div>`);
+  showLiveList('#lvList', LIVE_API.teacher, () => showClass(c), 'Open live sessions');
   const back = () => showClass(c);
   $('#back').onclick = () => { if(LIVE) LIVE.api.end(LIVE.id).catch(()=>{}); liveTeacherStop(); back(); };
-  $('#lvOpen').onclick = () => liveOpen(LIVE_API.teacher, [c.id], g, back);
+  $('#lvOpen').onclick = () => liveOpen(LIVE_API.teacher, [c.id], g, back, $('#lvName').value);
 }
 
 // TEACHER account (student page): choose one or several forms, for example 8B and 8C together
@@ -2956,6 +2993,7 @@ async function showLiveAcct(){
   const mine = S.cls?.id;
   setView(`<p><button class="btn ghost small" id="back">Back</button></p>
     <h1>Live challenge</h1>
+    <div id="lvList"></div>
     ${liveIntro}
     <div id="lvOpts">
     <div class="panel"><fieldset class="plain"><legend>Which forms take part</legend>
@@ -2963,29 +3001,35 @@ async function showLiveAcct(){
         <div class="forms">${cs.map(k=>`<label class="check"><input type="checkbox" name="lvC" value="${k.id}" ${k.id===mine ? 'checked' : ''}> ${esc(k.name)}</label>`).join('')}</div></div>`).join('')}
     </fieldset>
     <label class="field" style="max-width:340px;margin:14px 0 0"><span>Who</span><select id="lvG"><option value="">Everyone (boys and girls)</option><option value="M">Boys only</option><option value="F">Girls only</option></select></label></div>
-    <p style="margin-top:14px"><button class="btn" id="lvOpen">Open the session</button></p></div>
+    <label class="field" style="max-width:420px;margin:14px 0 0"><span>Session name (optional)</span><input id="lvName" maxlength="60" placeholder="e.g. 8BC boys with Mr Leo" autocomplete="off"></label>
+    <p style="margin-top:14px"><button class="btn" id="lvOpen">Open a new session</button></p></div>
     <div id="lv"></div>`);
   const back = () => showStudentHome();
+  showLiveList('#lvList', LIVE_API.acct, back, 'Open live sessions');
   $('#back').onclick = () => { if(LIVE) LIVE.api.end(LIVE.id).catch(()=>{}); liveTeacherStop(); back(); };
   $('#lvOpen').onclick = () => {
     // your own form first: the workout is the challenge of the first form that has one
     const ids = $$('[name="lvC"]:checked').map(x=>x.value).sort((a, b)=>(b===mine) - (a===mine));
     if(!ids.length) return toast('Tick at least one form.');
-    liveOpen(LIVE_API.acct, ids, $('#lvG').value, back);
+    liveOpen(LIVE_API.acct, ids, $('#lvG').value, back, $('#lvName').value);
   };
 }
 
-async function liveOpen(api, ids, g, back){
+async function liveOpen(api, ids, g, back, label){
   try{
-    const st = await api.start(ids, g);
+    const st = await api.start(ids, g, label);
     CK.set('live');
-    LIVE = {api, back, id:st.id, members:st.members || []};
-    tabStore.set('bwb-live-declined', st.id);   // the TEACHER account does not get its own "I'm ready" alert
-    ls.set('bwb-live-last-t', {id:st.id, who:api === LIVE_API.acct ? 'acct' : 'teacher', at:Date.now()});   // so a reload can bring it back
-    $('#lvOpts')?.remove();
-    liveTeacherRender(st);
-    LIVE.timer = setInterval(async () => { if(!LIVE) return; try{ liveTeacherRender(await LIVE.api.state(LIVE.id)); }catch(e){} }, 2000);
+    liveWatch(api, st, back);
   }catch(e){ fail('Could not open the session', e); }
+}
+// Watch a session's lobby: who is ready, Start now, Cancel
+function liveWatch(api, st, back){
+  LIVE = {api, back, id:st.id, members:st.members || []};
+  tabStore.set('bwb-live-declined', st.id);   // the TEACHER account does not get its own "I'm ready" alert
+  ls.set('bwb-live-last-t', {id:st.id, who:api === LIVE_API.acct ? 'acct' : 'teacher', at:Date.now()});   // so a reload can bring it back
+  $('#lvOpts')?.remove(); $('#lvList')?.remove();
+  liveTeacherRender(st);
+  LIVE.timer = setInterval(async () => { if(!LIVE) return; try{ liveTeacherRender(await LIVE.api.state(LIVE.id)); }catch(e){} }, 2000);
 }
 function liveTeacherRender(st){
   if(!LIVE || !$('#lv')) return;
@@ -3021,7 +3065,7 @@ function liveTeacherRun(st){
 function liveStudentStart(){ if(LIVE_S) return; LIVE_S = {fast:false, timer:setInterval(livePoll, 5000)}; livePoll(); }
 function liveStudentStop(){ if(LIVE_S?.timer) clearInterval(LIVE_S.timer); LIVE_S = null; $('#liveov')?.remove(); }
 async function livePoll(){
-  if(!S.student || !LIVE_S || $('#player') || LIVE) return;
+  if(!S.student || S.student.is_teacher || !LIVE_S || $('#player') || LIVE) return;   // teachers use the list of open sessions, not the student alert
   let st; try{ st = await Store.liveCheck(S.token); }catch(e){ return; }
   if(!LIVE_S || $('#player')) return;
   if(!st || st.status === 'ended' || tabStore.get('bwb-live-declined') === st.id || tabStore.get('bwb-live-finished') === st.id || (st.status === 'started' && liveOver(st)) || (st.status === 'waiting' && tabStore.get('bwb-live-later') === st.id)){ $('#liveov')?.remove(); return; }
@@ -3095,17 +3139,18 @@ async function showTemplates(){
 
 /* ===== Live session recovery for the teacher (teacher page and TEACHER account) ===== */
 async function showLiveResume(boxSel, who, back){
-  const box = $(boxSel), L = ls.get('bwb-live-last-t', null);
-  if(!box || !L || L.who !== who || Date.now() - L.at > 3*36e5) return;
+  const box = $(boxSel); if(!box) return;
   const api = who === 'acct' ? LIVE_API.acct : LIVE_API.teacher;
-  let st; try{ st = await api.state(L.id); }catch(e){ return; }
-  if(!$(boxSel) || !st?.plan) return;
-  const running = st.status === 'started' && !liveOver(st);
-  $(boxSel).innerHTML = `<div class="panel feature"><div class="muted small">Live challenge · ${esc((st.classes || []).join(' + '))}</div>
-    <div class="h3">${running ? 'A live session is running' : 'Your last live challenge'}</div>
-    <div class="btns">${running ? '<button class="btn" id="lvRejoin">Rejoin the timer</button>' : ''}<button class="btn ${running ? 'ghost' : ''}" id="lvRes">See the results</button></div></div>`;
+  let list = []; try{ list = liveOpenNow(await api.list()); }catch(e){}
+  if(!$(boxSel)) return;
+  if(list.length){
+    $(boxSel).innerHTML = `<div class="h3" style="margin:0 0 4px">Live sessions open now (${list.length})</div>${liveListHTML(list)}`;
+    return liveListWire(boxSel, api, back, list);
+  }
+  const L = ls.get('bwb-live-last-t', null);   // none open: the results of your last one
+  if(!L || L.who !== who || Date.now() - L.at > 3*36e5) return;
+  $(boxSel).innerHTML = `<div class="panel feature"><div class="h3">Your last live challenge</div><div class="btns"><button class="btn" id="lvRes">See the results</button></div></div>`;
   $('#lvRes').onclick = () => showLiveBoard(L.id, back);
-  if($('#lvRejoin')) $('#lvRejoin').onclick = () => { LIVE = {api, back, id:L.id, members:[]}; liveTeacherRun(st); };
 }
 
 /* ===== PIN requests: students who forgot their PIN ask the teacher ===== */
@@ -3188,6 +3233,7 @@ const TEACHER_GUIDE = [
   ['Live challenges', [
     ['Train together from a class page', 'During a video call or a lesson, press <b>Train together (live)</b> on the challenge panel, then <b>Open the session</b>. Students get an alert and tap <b>I\'m ready</b>; you see the list fill up. It starts for everyone when all are ready, or when you press <b>Start now</b>. After the last exercise everyone finds their pulse and waits: press <b>Start the 30-second count for everyone</b> on your timer. Ask students to open the app first: the alert only reaches those who have it open.', 'live'],
     ['Start the heart-rate count', 'After the last exercise everyone finds their pulse on the red screen. When they are ready, press <b>Start the 30-second count for everyone</b> on your timer: the count starts 3 seconds later on every screen, then the cool-down follows together. If you never press it, it starts by itself after 3 minutes.', 'pulse'],
+    ['Several teachers at once', 'When colleagues prepare live sessions at the same time, every <b>Train together</b> and <b>Start a live challenge</b> page starts with the list of <b>Open live sessions</b>: its name, the forms, the challenge and how many students are ready. Press <b>Open this session</b> to run the one you want (ready list, Start now), <b>Rejoin the timer</b> if it is already running, or <b>Results</b>. Give your session a name when you open it (for example "8BC boys with Mr Leo") so colleagues recognise it. Opening a new session for the same forms replaces the old one.', 'livelist'],
     ['Several forms together, as TEACHER', 'Log in as <b>TEACHER</b> in your form and press <b>Start a live challenge</b>. Tick the forms that take part (for example 8B and 8C) and choose everyone, boys or girls. You do the workout too, and your score is saved and shown with a <b>Teacher</b> tag. Keep your own form ticked. Give all the forms the same challenge beforehand so everyone does the same workout. If your phone crashes or the page reloads, log in as TEACHER again: <b>Rejoin the timer</b> puts you back in step with the class, and <b>See the results</b> opens the live leaderboard.', 'acct'],
     ['The live leaderboard', 'After the workout everyone counts their pulse, saves their score and sees one leaderboard for the whole live challenge: all the forms together, with each name\'s form, bpm and points. It updates as others save. Each result also counts for the student\'s own form\'s challenge.', 'lvboard']]],
   ['Results', [

@@ -187,7 +187,8 @@ insert into public.bw_students (class_id, name, is_teacher)
 
 alter table public.bw_live add column if not exists only_gender text check (only_gender in ('M', 'F'));
 alter table public.bw_live add column if not exists class_ids uuid[];
-alter table public.bw_live add column if not exists pulse_at timestamptz;   -- when the teacher started the heart-rate count for everyone
+alter table public.bw_live add column if not exists pulse_at timestamptz;
+alter table public.bw_live add column if not exists label text;   -- optional name given by the teacher, e.g. "8BC boys"   -- when the teacher started the heart-rate count for everyone
 -- the live session a workout was done in (for the live leaderboard)
 alter table public.bw_sessions add column if not exists live_id uuid references public.bw_live(id) on delete set null;
 create index if not exists bw_sessions_live on public.bw_sessions (live_id) where live_id is not null;   -- all the forms of a live session (class_id is the first)
@@ -982,7 +983,7 @@ create or replace function public.bw__live_state(p_live uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object(
     'id', l.id, 'class_id', l.class_id, 'status', l.status, 'start_at', l.start_at, 'server_now', now(),
-    'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at, 'pulse_at', l.pulse_at,
+    'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at, 'pulse_at', l.pulse_at, 'label', l.label,
     'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = l.class_id or k.id = any(coalesce(l.class_ids, '{}'::uuid[]))), '[]'::jsonb),
     'plan', (select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id), 'only_gender', l.only_gender,
     'size', (select count(*) from bw_students s where not s.is_teacher and bw__live_member(l, s)),
@@ -999,7 +1000,8 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Open a session for one or several forms. The workout is the challenge of the first form that has one.
-create or replace function public.bw__live_start(p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text) returns jsonb
+drop function if exists public.bw__live_start(uuid[], boolean, boolean, text);
+create or replace function public.bw__live_start(p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text, p_label text default null) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare pl uuid; lid uuid;
 begin
@@ -1011,19 +1013,20 @@ begin
   if pl is null then raise exception 'Set a challenge workout for this class first.'; end if;
   update bw_live set status = 'ended'
    where status <> 'ended' and (class_id = any(p_class_ids) or coalesce(class_ids, '{}'::uuid[]) && p_class_ids);
-  insert into bw_live (class_id, class_ids, plan_id, warm, cool, only_gender)
-  values (p_class_ids[1], p_class_ids, pl, coalesce(p_warm, true), coalesce(p_cool, true), nullif(p_gender, ''))
+  insert into bw_live (class_id, class_ids, plan_id, warm, cool, only_gender, label)
+  values (p_class_ids[1], p_class_ids, pl, coalesce(p_warm, true), coalesce(p_cool, true), nullif(p_gender, ''), left(nullif(trim(coalesce(p_label, '')), ''), 60))
   returning id into lid;
   return bw__live_state(lid) || jsonb_build_object('members', bw__live_members(lid));
 end $$;
 
 drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean);
-create or replace function public.bw_t_live_start(p_token text, p_class_id uuid, p_warm boolean, p_cool boolean, p_gender text default null)
+drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean, text);
+create or replace function public.bw_t_live_start(p_token text, p_class_id uuid, p_warm boolean, p_cool boolean, p_gender text default null, p_label text default null)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return bw__live_start(array[p_class_id], p_warm, p_cool, p_gender);
+  return bw__live_start(array[p_class_id], p_warm, p_cool, p_gender, p_label);
 end $$;
 
 create or replace function public.bw_t_live_state(p_token text, p_live uuid) returns jsonb
@@ -1071,12 +1074,13 @@ begin
   return sid;
 end $$;
 
-create or replace function public.bw_s_live_start(p_token text, p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text default null)
+drop function if exists public.bw_s_live_start(text, uuid[], boolean, boolean, text);
+create or replace function public.bw_s_live_start(p_token text, p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text default null, p_label text default null)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher_acct(p_token);
-  return bw__live_start(p_class_ids, p_warm, p_cool, p_gender);
+  return bw__live_start(p_class_ids, p_warm, p_cool, p_gender, p_label);
 end $$;
 
 create or replace function public.bw_s_live_state(p_token text, p_live uuid) returns jsonb
@@ -1100,6 +1104,27 @@ begin
   perform bw__teacher_acct(p_token);
   perform bw__live_pulse(p_live);
   return bw__live_state(p_live);
+end $$;
+
+-- The open live sessions (waiting, or started less than 3 hours ago), newest first: a teacher picks the one to run
+create or replace function public.bw__live_list() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(bw__live_state(l.id) || jsonb_build_object('members', bw__live_members(l.id)) order by l.created_at desc), '[]'::jsonb)
+    from bw_live l where l.status <> 'ended' and l.created_at > now() - interval '3 hours'
+$$;
+
+create or replace function public.bw_t_live_list(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher(p_token);
+  return bw__live_list();
+end $$;
+
+create or replace function public.bw_s_live_list(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform bw__teacher_acct(p_token);
+  return bw__live_list();
 end $$;
 
 create or replace function public.bw_s_live_end(p_token text, p_live uuid) returns void
