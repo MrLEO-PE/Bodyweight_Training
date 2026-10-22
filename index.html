@@ -1934,7 +1934,7 @@ const TUTORIAL = [
   ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],
   ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
   ['Pick your team', 'If your teacher turns on teams, tapping a team (Blue, Red, Yellow, Green…) makes you ready. First come, first served, but teams stay balanced: a team that already has more players than another is closed. With 40 students and 4 teams you get 10 per team. Your team colour shows during the workout and on the leaderboard.', 'teams'],
-  ['Pick your team’s exercises', 'In a "build your workout" session, once you are in a team the app opens the exercise menu for your team: you and your teammates choose the exercises together (the number is set by your teacher). Tap a movement to add it, tap it again to remove it. If you leave, the notice on your home page says <b>Set the exercises</b>. You each do them at your own level. When the team is full, wait: the teacher starts everyone together.', 'teampick'],
+  ['Pick your team’s exercises', 'In a "build your workout" session, once you are in a team the app opens the exercise menu for your team: you and your teammates choose the exercises together (the number is set by your teacher). Tap one level of a movement to add it (tap it again to remove it, tap another level to swap). If you leave, the notice on your home page says <b>Set the exercises</b>. You each do them at your own level. When the team is full, wait: the teacher starts everyone together.', 'teampick'],
   ['Count your pulse together', 'In a live challenge, the red screen says <b>Wait</b>: put your fingers on your pulse and keep still. When your teacher presses the button, the 30-second count starts on every screen 3 seconds later. Count every beat until it reaches 0, then the stretches begin.', 'pulse-live'],
   ['Write your beats', 'As soon as the 30 seconds end, you have <b>20 seconds</b> to type the beats you counted. The app doubles it into your beats per minute (bpm). Then the stretches begin.', 'pulse-log'],
   ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
@@ -3171,7 +3171,7 @@ function liveTeacherRender(st){
     const withPlayers = Array.from({length:st.teams}, (_, i)=>i+1).filter(t=>names(t).length > 0), bad = withPlayers.filter(t=>picks(t).length !== st.pick_n);
     $('#lv').insertAdjacentHTML('beforeend', `${build ? `<p class="small" style="max-width:none;margin:12px 0 0">Each team picks <b>${st.pick_n}</b> exercises. ${bad.length ? `<b>Waiting for ${bad.map(t=>TEAMS[t-1][0]).join(', ')}.</b>` : withPlayers.length ? '<b>All teams are complete: you can start.</b>' : 'Waiting for students to join a team.'}</p>` : ''}
       <div class="teamgrid">${Array.from({length:st.teams}, (_, i)=>i+1).map(t=>`<div class="panel" style="border-top:8px solid ${TEAMS[t-1][1]}"><b>${TEAMS[t-1][0]}</b> <span class="muted small">${names(t).length} player${names(t).length===1 ? '' : 's'}${build && names(t).length ? ` · ${picks(t).length}/${st.pick_n} exercises${picks(t).length === st.pick_n ? ' ✓' : ''}` : ''}</span><div class="small" style="max-width:none;margin-top:4px">${names(t).map(esc).join(', ') || '<span class="muted">no one yet</span>'}</div>
-        ${build && names(t).length ? `<ul class="splitlist">${picks(t).map(fid=>`<li>${esc(FAM[fid]?.name || fid)}</li>`).join('') || '<li class="muted">no exercise yet</li>'}</ul>` : ''}</div>`).join('')}</div>`);
+        ${build && names(t).length ? `<ul class="splitlist">${picks(t).map(fid=>`<li>${esc(pickInfo(fid).name)}</li>`).join('') || '<li class="muted">no exercise yet</li>'}</ul>` : ''}</div>`).join('')}</div>`);
     if(build) $('#lvGo').disabled = !withPlayers.length || bad.length > 0;
   }
   $('#lvGo').onclick = async () => {
@@ -3207,7 +3207,7 @@ function liveSplitRun(st){
     if($('#pulseAll')) $('#pulseAll').onclick = async () => { $('#pulseAll').disabled = true; try{ cur = await api.pulse(id); }catch(x){ toast(x.message); } };
     if($('#splitRes')) $('#splitRes').onclick = () => showLiveBoard(id, back);
     if(ph && ph.type === 'work' && !done) done = false;
-    $('#split').innerHTML = Array.from({length:cur.teams}, (_, i)=>i+1).filter(t=>names(t) > 0).map(t=>{ const fids = picks(t), nm = fids.map(fid=>FAM[fid]?.name || fid);
+    $('#split').innerHTML = Array.from({length:cur.teams}, (_, i)=>i+1).filter(t=>names(t) > 0).map(t=>{ const fids = picks(t), nm = fids.map(fid=>pickInfo(fid).name);
       return `<div class="panel" style="border-top:8px solid ${TEAMS[t-1][1]}"><b>${TEAMS[t-1][0]}</b> <span class="muted small">${names(t)} players</span>
         <div class="splitphase">${ph ? esc(label(ph, nm)) : 'Finished'}</div>
         <ol class="splitlist">${nm.map((n, j)=>`<li class="${ph && ph.type === 'work' && ph.ex === j ? 'now' : ''}">${esc(n)}</li>`).join('')}</ol></div>`; }).join('');
@@ -3297,6 +3297,9 @@ function liveOverlay(st){
   if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-declined', st.id); ov.remove(); };
 }
 // The team's shared exercise menu: the same screen as the builder; every tap adds or removes a movement for the whole team.
+// A team pick is stored as '<movement>_l<level>' (e.g. squat_l2): one movement at one level.
+const pickKey = (fam, lvl) => fam + '_l' + lvl;
+const pickInfo = k => { const m = /^(.*)_l([1-4])$/.exec(k) || [k, k, 1]; return {fid:m[1], lvl:+m[2], name:FAM[m[1]]?.levels[m[2]-1]?.n || FAM[m[1]]?.name || k}; };
 let TP = null;
 function showTeamPick(st){
   const mine = myTeamOf(st); if(!mine) return;
@@ -3304,12 +3307,12 @@ function showTeamPick(st){
   const fidsOf = s2 => (s2.team_ex || []).find(t=>t.team===mine)?.fids || [];
   setView(`<p><button class="btn ghost small" id="tpDone">Later</button></p>
     <h1>${teamChip(mine)} team: pick your exercises</h1>
-    <p class="muted">Choose <b>${st.pick_n}</b> exercises together with your team. Everyone in the team sees the same list and can add or remove a movement: tap it again to remove it. You each do them at your own level, and your teacher starts everyone together.</p>
+    <p class="muted">Choose <b>${st.pick_n}</b> exercises together with your team. Everyone in the team sees the same list and can add or remove a movement: tap it again to remove it. Tap one level of a movement: tapping another level of the same movement replaces it. Your teacher starts everyone together.</p>
     ${REGIONS.map(r=>`<h2>${r}</h2>` + FAMILIES.filter(f=>f.region===r).map(famRow).join('')).join('')}
     <div class="dock" id="dock"></div>`);
   const draw = s2 => {
     TP.fids = fidsOf(s2); const n = TP.fids.length;
-    $$('.chip').forEach(b=>{ b.setAttribute('aria-pressed', TP.fids.includes(b.dataset.fam)); const o = b.querySelector('.ord'); if(o) o.hidden = true; });
+    $$('.chip').forEach(b=>{ b.setAttribute('aria-pressed', TP.fids.includes(pickKey(b.dataset.fam, b.dataset.lvl))); const o = b.querySelector('.ord'); if(o) o.hidden = true; });
     $('#dock').innerHTML = `<div class="dock-in"><div><b>${n} of ${TP.n} chosen</b> <span class="muted">${n === TP.n ? 'Your team is ready. Wait for your teacher.' : 'pick ' + (TP.n - n) + ' more'}</span></div></div>`;
   };
   const leave = () => { clearInterval(TP?.timer); TP = null; };
@@ -3324,7 +3327,8 @@ function showTeamPick(st){
   view.onclick = async e => {
     const how = e.target.closest('[data-how]'); if(how) return showHow(how.dataset.how);
     const chip = e.target.closest('.chip'); if(!chip) return;
-    try{ const r = await Store.liveTeamToggle(S.token, TP.id, chip.dataset.fam); if(r?.error){ toast(r.error); if(r.team_ex) draw(r); return; } draw(r); }catch(err){ toast(err.message); }
+    const key = pickKey(chip.dataset.fam, chip.dataset.lvl), old = TP.fids.find(k=>k !== key && pickInfo(k).fid === chip.dataset.fam);   // one level per movement: a new level replaces the old one
+    try{ let r; if(old) r = await Store.liveTeamToggle(S.token, TP.id, old); r = await Store.liveTeamToggle(S.token, TP.id, key); if(r?.error){ toast(r.error); if(r.team_ex) draw(r); return; } draw(r); }catch(err){ toast(err.message); }
   };
   $('#tpDone').onclick = () => { tabStore.set('bwb-live-later', TP.id); leave(); showStudentHome(); };
   draw(st); TP.timer = setInterval(sync, 2000);
@@ -3335,7 +3339,7 @@ function liveJoin(st, leader){
   if(st.mode === 'team_build'){   // each team does the workout it picked
     const t = myTeamOf(st), fids = (st.team_ex || []).find(x=>x.team===t)?.fids || [];
     if(!t || !fids.length){ toast('Pick a team and its exercises first.'); return liveOverlay(st); }
-    p = {...p, title:TEAMS[t-1][0] + ' team', exercises:fids.map(fid=>({fid, lvl:1, free:true}))};
+    p = {...p, title:TEAMS[t-1][0] + ' team', exercises:fids.map(k=>{ const i = pickInfo(k); return {fid:i.fid, lvl:i.lvl, free:false}; })};
   }
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{ const f = S.A?.fams[x.fid]; return {fam:x.fid, lvl:x.free && f ? f.level : x.lvl}; });
