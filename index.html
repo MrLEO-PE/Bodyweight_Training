@@ -1934,7 +1934,7 @@ const TUTORIAL = [
   ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],
   ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
   ['Pick your team', 'If your teacher turns on teams, tapping a team (Blue, Red, Yellow, Green…) makes you ready. First come, first served, but teams stay balanced: a team that already has more players than another is closed. With 40 students and 4 teams you get 10 per team. Your team colour shows during the workout and on the leaderboard.', 'teams'],
-  ['Pick your team’s exercises', 'In a "build your workout" session, once you are in a team you and your teammates choose the exercises together (the number is set by your teacher). Tap a movement to add or remove it. You each do them at your own level. When the team is full, wait: the teacher starts everyone together.', 'teampick'],
+  ['Pick your team’s exercises', 'In a "build your workout" session, once you are in a team the app opens the exercise menu for your team: you and your teammates choose the exercises together (the number is set by your teacher). Tap a movement to add it, tap it again to remove it. If you leave, the notice on your home page says <b>Set the exercises</b>. You each do them at your own level. When the team is full, wait: the teacher starts everyone together.', 'teampick'],
   ['Count your pulse together', 'In a live challenge, the red screen says <b>Wait</b>: put your fingers on your pulse and keep still. When your teacher presses the button, the 30-second count starts on every screen 3 seconds later. Count every beat until it reaches 0, then the stretches begin.', 'pulse-live'],
   ['Write your beats', 'As soon as the 30 seconds end, you have <b>20 seconds</b> to type the beats you counted. The app doubles it into your beats per minute (bpm). Then the stretches begin.', 'pulse-log'],
   ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
@@ -3247,7 +3247,7 @@ async function liveBanner(){
 }
 async function livePoll(){
   if(S.student && !S.student.is_teacher && LIVE_S) liveBanner();
-  if(!S.student || S.student.is_teacher || !LIVE_S || $('#player') || LIVE) return;   // teachers use the list of open sessions, not the student alert
+  if(!S.student || S.student.is_teacher || !LIVE_S || $('#player') || LIVE || TP) return;   // teachers use the list of open sessions, not the student alert
   let st; try{ st = await Store.liveCheck(S.token); }catch(e){ return; }
   if(!LIVE_S || $('#player')) return;
   if(!st || st.status === 'ended' || tabStore.get('bwb-live-declined') === st.id || tabStore.get('bwb-live-finished') === st.id || (st.status === 'started' && liveOver(st)) || (st.status === 'waiting' && tabStore.get('bwb-live-later') === st.id)){ $('#liveov')?.remove(); return; }
@@ -3280,17 +3280,7 @@ function liveOverlay(st){
     if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-declined', st.id); ov.remove(); };
     return;
   }
-  if(st.mode === 'team_build' && mine && st.status !== 'started'){
-    const fids = (st.team_ex || []).find(t=>t.team===mine)?.fids || [], N = st.pick_n;
-    ov.innerHTML = `<div class="liveov-in" style="max-width:560px"><div class="p-phase">${teamChip(mine)} team</div><h2>Pick your team's exercises</h2>
-      <p>Choose <b>${N}</b> exercises together with your team: everyone in the team can add or remove. You will each do them at your own level.</p>
-      <p><b>${fids.length} of ${N}</b> ${fids.length === N ? '✓ Your team is ready. Wait for your teacher to start.' : ''}</p>
-      <div class="exgrid">${REGIONS.map(r=>`<div class="exreg"><div class="small">${r}</div>${FAMILIES.filter(f=>f.region===r).map(f=>`<button type="button" class="exbtn" data-fid="${f.id}" aria-pressed="${fids.includes(f.id)}">${esc(f.name)}</button>`).join('')}</div>`).join('')}</div>
-      <p><button class="btn ghost small" id="lvLater">Not now</button></p></div>`;
-    $$('#liveov [data-fid]').forEach(b=>b.onclick = async () => { try{ const r = await Store.liveTeamToggle(S.token, st.id, b.dataset.fid); if(r?.error){ toast(r.error); if(r.team_ex) liveOverlay(r); return; } liveOverlay(r); }catch(e){ toast(e.message); } });
-    if($('#lvLater')) $('#lvLater').onclick = () => { tabStore.set('bwb-live-later', st.id); ov.remove(); };
-    return;
-  }
+  if(st.mode === 'team_build' && mine && st.status !== 'started'){ ov.remove(); return showTeamPick(st); }   // the team builds its workout on the exercise menu
   ov.innerHTML = `<div class="liveov-in"><div class="p-phase">Live session</div><h2>${esc(p.title)}</h2>${mine ? `<p>${teamChip(mine)} team</p>` : ''}
     <p>${p.exercises.length} exercises, ${p.rounds} round${p.rounds===1 ? '' : 's'}${st.warm ? ', with warm-up' : ''}${st.cool ? ' and cool-down' : ''}.</p>
     ${st.status === 'started'
@@ -3305,6 +3295,39 @@ function liveOverlay(st){
   if($('#lvLater')) $('#lvLater').onclick = () => { tabStore.set('bwb-live-later', st.id); ov.remove(); };
   if($('#lvJoin')) $('#lvJoin').onclick = () => liveJoin(st);
   if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-declined', st.id); ov.remove(); };
+}
+// The team's shared exercise menu: the same screen as the builder; every tap adds or removes a movement for the whole team.
+let TP = null;
+function showTeamPick(st){
+  const mine = myTeamOf(st); if(!mine) return;
+  TP = {id:st.id, team:mine, n:st.pick_n, fids:[]};
+  const fidsOf = s2 => (s2.team_ex || []).find(t=>t.team===mine)?.fids || [];
+  setView(`<p><button class="btn ghost small" id="tpDone">Later</button></p>
+    <h1>${teamChip(mine)} team: pick your exercises</h1>
+    <p class="muted">Choose <b>${st.pick_n}</b> exercises together with your team. Everyone in the team sees the same list and can add or remove a movement: tap it again to remove it. You each do them at your own level, and your teacher starts everyone together.</p>
+    ${REGIONS.map(r=>`<h2>${r}</h2>` + FAMILIES.filter(f=>f.region===r).map(famRow).join('')).join('')}
+    <div class="dock" id="dock"></div>`);
+  const draw = s2 => {
+    TP.fids = fidsOf(s2); const n = TP.fids.length;
+    $$('.chip').forEach(b=>{ b.setAttribute('aria-pressed', TP.fids.includes(b.dataset.fam)); const o = b.querySelector('.ord'); if(o) o.hidden = true; });
+    $('#dock').innerHTML = `<div class="dock-in"><div><b>${n} of ${TP.n} chosen</b> <span class="muted">${n === TP.n ? 'Your team is ready. Wait for your teacher.' : 'pick ' + (TP.n - n) + ' more'}</span></div></div>`;
+  };
+  const leave = () => { clearInterval(TP?.timer); TP = null; };
+  const sync = async () => {
+    if(!$('#tpDone')) return leave();   // the student went elsewhere
+    let s2; try{ s2 = await Store.liveCheck(S.token); }catch(e){ return; }
+    if(!TP || !$('#tpDone')) return;
+    if(!s2 || s2.id !== TP.id || s2.status === 'ended'){ leave(); return showStudentHome(); }
+    if(s2.status === 'started' && s2.me_ready){ leave(); return liveJoin(s2); }
+    draw(s2);
+  };
+  view.onclick = async e => {
+    const how = e.target.closest('[data-how]'); if(how) return showHow(how.dataset.how);
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    try{ const r = await Store.liveTeamToggle(S.token, TP.id, chip.dataset.fam); if(r?.error){ toast(r.error); if(r.team_ex) draw(r); return; } draw(r); }catch(err){ toast(err.message); }
+  };
+  $('#tpDone').onclick = () => { tabStore.set('bwb-live-later', TP.id); leave(); showStudentHome(); };
+  draw(st); TP.timer = setInterval(sync, 2000);
 }
 function liveJoin(st, leader){
   tabStore.set('bwb-live-done', st.id); $('#liveov')?.remove();
