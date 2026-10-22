@@ -3238,11 +3238,11 @@ async function liveBanner(){
   let list; try{ list = await Store.liveOpen(S.token); }catch(e){ return; }
   if(!$('#liveNow') || $('#player')) return;
   list = list.filter(st => st.plan && tabStore.get('bwb-live-finished') !== st.id && !(st.status === 'started' && liveOver(st)));
-  $('#liveNow').innerHTML = list.map(st=>{ const mine = myTeamOf(st), running = st.status === 'started';
+  $('#liveNow').innerHTML = list.map(st=>{ const mine = myTeamOf(st), running = st.status === 'started', build = st.mode === 'team_build', nPick = ((st.team_ex || []).find(t=>t.team===mine)?.fids || []).length;
     return `<div class="livenow${running ? ' on' : ''}" role="status"><span class="dot" aria-hidden="true"></span>
-      <div class="msg"><b>${running ? 'Ongoing live' : 'Live starting'}</b> · ${liveName(st)}<div class="small">${esc(st.plan.title)}${mine ? ' · ' + teamChip(mine) + ' team' : ''}</div></div>
-      <button type="button" class="btn small" data-lnj="${st.id}">${running ? (st.me_ready ? 'Rejoin' : 'Join now') : (st.me_ready ? 'See' : 'Get ready')}</button></div>`; }).join('');
-  $$('#liveNow [data-lnj]').forEach(b=>b.onclick = () => { const st = list.find(x=>x.id===b.dataset.lnj); try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume && audio.resume(); }catch(e){}
+      <div class="msg"><b>${running ? 'Ongoing live' : 'Live starting'}</b> · ${liveName(st)}<div class="small">${esc(st.plan.title)}${mine ? ' · ' + teamChip(mine) + ' team' : ''}${build && mine ? ' · ' + nPick + ' of ' + st.pick_n + ' exercises' : ''}</div></div>
+      <button type="button" class="btn small" data-lnj="${st.id}">${running ? (st.me_ready ? 'Rejoin' : 'Join now') : build ? (mine ? 'Set the exercises' : 'Pick a team') : (st.me_ready ? 'See' : 'Get ready')}</button></div>`; }).join('');
+  $$('#liveNow [data-lnj]').forEach(b=>b.onclick = () => { const st = list.find(x=>x.id===b.dataset.lnj); tabStore.set('bwb-live-later', ''); tabStore.set('bwb-live-declined', ''); try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume && audio.resume(); }catch(e){}
     if(st.status === 'started' && (myTeamOf(st) || !(st.teams > 1))) liveJoin(st); else liveOverlay(st); });
 }
 async function livePoll(){
@@ -3264,6 +3264,7 @@ function liveAlert(title){
 function liveOverlay(st){
   let ov = $('#liveov');
   if(!ov){ ov = document.createElement('div'); ov.id = 'liveov'; ov.className = 'liveov'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', 'Live session'); document.body.appendChild(ov); liveAlert(st.plan?.title || ''); }
+  const keepScroll = ov.scrollTop; setTimeout(()=>{ ov.scrollTop = keepScroll; }, 0);   // the picker refreshes every 2 s: stay where the student is
   const n = st.ready.length, p = st.plan, mine = myTeamOf(st), needTeam = st.teams > 1 && !mine && !S.student?.is_teacher;
   const cnt = t => (st.team_members || []).filter(m=>m.team===t).length, mn = Math.min(...Array.from({length:st.teams || 0}, (_, i)=>cnt(i+1)));
   if(needTeam){
