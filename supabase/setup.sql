@@ -194,6 +194,17 @@ alter table public.bw_live alter column plan_id drop not null;
 alter table public.bw_live add column if not exists workout jsonb;
 -- teams: 0 = no teams, otherwise 2 to 8 teams (Blue, Red, Yellow, Green...)
 alter table public.bw_live add column if not exists teams int not null default 0 check (teams between 0 and 8);
+-- mode 'team_build': every team picks its own exercises (pick_n of them); 'standard': one workout for everyone
+alter table public.bw_live add column if not exists mode text not null default 'standard' check (mode in ('standard', 'team_build'));
+alter table public.bw_live add column if not exists pick_n int;
+-- the exercises picked by each team in a team_build session
+create table if not exists public.bw_live_team_ex (
+  live_id uuid not null references public.bw_live(id) on delete cascade,
+  team int not null,
+  fids text[] not null default '{}',
+  updated_at timestamptz not null default now(),
+  primary key (live_id, team)
+);
 create table if not exists public.bw_live_teams (
   live_id uuid not null references public.bw_live(id) on delete cascade,
   student_id uuid not null references public.bw_students(id) on delete cascade,
@@ -232,7 +243,7 @@ create unique index if not exists bw_pin_req_pending on public.bw_pin_requests (
 
 do $$ declare t text; p record; begin
   foreach t in array array['bw_settings','bw_classes','bw_students','bw_sessions','bw_tokens',
-                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports','bw_templates','bw_pin_requests','bw_live_teams'] loop
+                           'bw_plans','bw_challenges','bw_tests','bw_demos','bw_live','bw_live_ready','bw_imports','bw_templates','bw_pin_requests','bw_live_teams','bw_live_team_ex'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on table public.%I from anon, authenticated', t);
     for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
@@ -997,7 +1008,8 @@ language sql stable security definer set search_path = public as $$
     'id', l.id, 'class_id', l.class_id, 'status', l.status, 'start_at', l.start_at, 'server_now', now(),
     'warm', l.warm, 'cool', l.cool, 'created_at', l.created_at, 'pulse_at', l.pulse_at, 'label', l.label,
     'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = l.class_id or k.id = any(coalesce(l.class_ids, '{}'::uuid[]))), '[]'::jsonb),
-    'plan', coalesce((select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id), l.workout), 'custom', l.workout is not null, 'teams', l.teams,
+    'plan', coalesce((select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id), l.workout), 'custom', l.workout is not null, 'teams', l.teams, 'mode', l.mode, 'pick_n', l.pick_n,
+    'team_ex', coalesce((select jsonb_agg(jsonb_build_object('team', x.team, 'fids', to_jsonb(x.fids))) from bw_live_team_ex x where x.live_id = l.id), '[]'::jsonb),
     'team_members', coalesce((select jsonb_agg(jsonb_build_object('student_id', t.student_id, 'team', t.team) order by t.joined_at) from bw_live_teams t where t.live_id = l.id), '[]'::jsonb), 'only_gender', l.only_gender,
     'size', (select count(*) from bw_students s where not s.is_teacher and bw__live_member(l, s)),
     'ready', coalesce((select jsonb_agg(r.student_id) from bw_live_ready r join bw_students s on s.id = r.student_id where r.live_id = l.id and not s.is_teacher), '[]'::jsonb))
@@ -1016,13 +1028,24 @@ $$;
 drop function if exists public.bw__live_start(uuid[], boolean, boolean, text);
 drop function if exists public.bw__live_start(uuid[], boolean, boolean, text, text);
 drop function if exists public.bw__live_start(uuid[], boolean, boolean, text, text, uuid, jsonb);
-create or replace function public.bw__live_start(p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text, p_label text default null, p_plan_id uuid default null, p_workout jsonb default null, p_teams int default 0) returns jsonb
+drop function if exists public.bw__live_start(uuid[], boolean, boolean, text, text, uuid, jsonb, int);
+create or replace function public.bw__live_start(p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text, p_label text default null, p_plan_id uuid default null, p_workout jsonb default null, p_teams int default 0, p_pick int default 0) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare pl uuid; lid uuid; ex jsonb := p_workout -> 'exercises'; wk jsonb;
 begin
   if coalesce(array_length(p_class_ids, 1), 0) = 0 then raise exception 'Choose at least one class.'; end if;
   if coalesce(p_gender, '') not in ('', 'M', 'F') then raise exception 'Choose boys, girls or everyone.'; end if;
-  if p_workout is not null then
+  if coalesce(p_pick, 0) > 0 then
+    -- every team builds its own workout: the teacher fixes how many exercises, the timings and the number of teams
+    if coalesce(p_teams, 0) not between 2 and 8 then raise exception 'Choose 2 to 8 teams.'; end if;
+    if p_pick not between 4 and 12 then raise exception 'Choose 4 to 12 exercises per team.'; end if;
+    if coalesce((p_workout ->> 'rounds')::int, 0) not between 1 and 3 or coalesce((p_workout ->> 'work_sec')::int, 0) not between 10 and 120
+       or coalesce((p_workout ->> 'rest_sec')::int, -1) not between 0 and 120 then
+      raise exception 'This workout is not valid.';
+    end if;
+    wk := jsonb_build_object('title', 'Team workout', 'note', '', 'work_sec', (p_workout ->> 'work_sec')::int, 'rest_sec', (p_workout ->> 'rest_sec')::int,
+                             'rounds', (p_workout ->> 'rounds')::int, 'exercises', '[]'::jsonb);
+  elsif p_workout is not null then
     -- a saved challenge chosen by the teacher
     if jsonb_typeof(ex) is distinct from 'array' or jsonb_array_length(ex) not between 1 and 12 or length(trim(coalesce(p_workout ->> 'title', ''))) = 0
        or coalesce((p_workout ->> 'rounds')::int, 0) not between 1 and 3 or coalesce((p_workout ->> 'work_sec')::int, 0) not between 10 and 120
@@ -1042,9 +1065,10 @@ begin
   end if;
   update bw_live set status = 'ended'
    where status <> 'ended' and (class_id = any(p_class_ids) or coalesce(class_ids, '{}'::uuid[]) && p_class_ids);
-  insert into bw_live (class_id, class_ids, plan_id, workout, warm, cool, only_gender, label, teams)
+  insert into bw_live (class_id, class_ids, plan_id, workout, warm, cool, only_gender, label, teams, mode, pick_n)
   values (p_class_ids[1], p_class_ids, pl, wk, coalesce(p_warm, true), coalesce(p_cool, true), nullif(p_gender, ''), left(nullif(trim(coalesce(p_label, '')), ''), 60),
-          case when p_teams between 2 and 8 then p_teams else 0 end)
+          case when p_teams between 2 and 8 then p_teams else 0 end,
+          case when coalesce(p_pick, 0) > 0 then 'team_build' else 'standard' end, nullif(p_pick, 0))
   returning id into lid;
   return bw__live_state(lid) || jsonb_build_object('members', bw__live_members(lid));
 end $$;
@@ -1053,12 +1077,13 @@ drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean);
 drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean, text);
 drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean, text, text);
 drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean, text, text, uuid, jsonb);
-create or replace function public.bw_t_live_start(p_token text, p_class_id uuid, p_warm boolean, p_cool boolean, p_gender text default null, p_label text default null, p_plan_id uuid default null, p_workout jsonb default null, p_teams int default 0)
+drop function if exists public.bw_t_live_start(text, uuid, boolean, boolean, text, text, uuid, jsonb, int);
+create or replace function public.bw_t_live_start(p_token text, p_class_id uuid, p_warm boolean, p_cool boolean, p_gender text default null, p_label text default null, p_plan_id uuid default null, p_workout jsonb default null, p_teams int default 0, p_pick int default 0)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
-  return bw__live_start(array[p_class_id], p_warm, p_cool, p_gender, p_label, p_plan_id, p_workout, p_teams);
+  return bw__live_start(array[p_class_id], p_warm, p_cool, p_gender, p_label, p_plan_id, p_workout, p_teams, p_pick);
 end $$;
 
 create or replace function public.bw_t_live_state(p_token text, p_live uuid) returns jsonb
@@ -1072,6 +1097,7 @@ create or replace function public.bw_t_live_go(p_token text, p_live uuid) return
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher(p_token);
+  perform bw__team_build_ok(p_live);
   perform bw__live_go(p_live);
   return bw__live_state(p_live) || jsonb_build_object('members', bw__live_members(p_live));
 end $$;
@@ -1097,6 +1123,43 @@ begin
   return bw__live_state(p_live);
 end $$;
 
+-- Team workouts: every team that has players must have picked exactly pick_n exercises before the teacher can start
+create or replace function public.bw__team_build_ok(p_live uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare l bw_live;
+begin
+  select * into l from bw_live where id = p_live;
+  if l.mode <> 'team_build' then return; end if;
+  if not exists (select 1 from bw_live_teams where live_id = p_live) then raise exception 'No team has joined yet.'; end if;
+  if exists (select 1 from (select distinct t.team from bw_live_teams t where t.live_id = p_live) g
+              where coalesce((select array_length(x.fids, 1) from bw_live_team_ex x where x.live_id = p_live and x.team = g.team), 0) <> l.pick_n) then
+    raise exception 'Every team needs exactly % exercises before you start.', l.pick_n;
+  end if;
+end $$;
+
+-- A student of the team adds or removes an exercise of the team's workout (any member can; at most pick_n)
+create or replace function public.bw_live_team_toggle(p_token text, p_live uuid, p_fid text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare sid uuid := bw__student(p_token); s bw_students; l bw_live; mine int; cur text[];
+begin
+  select * into s from bw_students where id = sid;
+  if s.is_teacher then return jsonb_build_object('error', 'TEACHER does not pick exercises.'); end if;
+  select * into l from bw_live where id = p_live for update;
+  if not found or l.status = 'ended' or not bw__live_member(l, s) or l.mode <> 'team_build' then return jsonb_build_object('error', 'This live session has ended.'); end if;
+  if l.status = 'started' then return jsonb_build_object('error', 'The session has started: the workout is fixed.'); end if;
+  select team into mine from bw_live_teams where live_id = p_live and student_id = sid;
+  if mine is null then return jsonb_build_object('error', 'Pick a team first.'); end if;
+  if p_fid is null or p_fid !~ '^[a-z0-9_]{1,30}$' then return jsonb_build_object('error', 'Unknown exercise.'); end if;
+  insert into bw_live_team_ex (live_id, team) values (p_live, mine) on conflict do nothing;
+  select fids into cur from bw_live_team_ex where live_id = p_live and team = mine for update;
+  if p_fid = any(cur) then cur := array_remove(cur, p_fid);
+  elsif coalesce(array_length(cur, 1), 0) < l.pick_n then cur := cur || p_fid;
+  else return jsonb_build_object('error', 'Your team already has ' || l.pick_n || ' exercises. Remove one first.') || bw__live_state(p_live);
+  end if;
+  update bw_live_team_ex set fids = cur, updated_at = now() where live_id = p_live and team = mine;
+  return bw__live_state(p_live) || jsonb_build_object('me_ready', true);
+end $$;
+
 -- The same controls for the TEACHER account of a class (logged in from the student page with the teacher PIN)
 create or replace function public.bw__teacher_acct(p_token text) returns uuid
 language plpgsql security definer set search_path = public, extensions as $$
@@ -1109,12 +1172,13 @@ end $$;
 drop function if exists public.bw_s_live_start(text, uuid[], boolean, boolean, text);
 drop function if exists public.bw_s_live_start(text, uuid[], boolean, boolean, text, text);
 drop function if exists public.bw_s_live_start(text, uuid[], boolean, boolean, text, text, uuid, jsonb);
-create or replace function public.bw_s_live_start(p_token text, p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text default null, p_label text default null, p_plan_id uuid default null, p_workout jsonb default null, p_teams int default 0)
+drop function if exists public.bw_s_live_start(text, uuid[], boolean, boolean, text, text, uuid, jsonb, int);
+create or replace function public.bw_s_live_start(p_token text, p_class_ids uuid[], p_warm boolean, p_cool boolean, p_gender text default null, p_label text default null, p_plan_id uuid default null, p_workout jsonb default null, p_teams int default 0, p_pick int default 0)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher_acct(p_token);
-  return bw__live_start(p_class_ids, p_warm, p_cool, p_gender, p_label, p_plan_id, p_workout, p_teams);
+  return bw__live_start(p_class_ids, p_warm, p_cool, p_gender, p_label, p_plan_id, p_workout, p_teams, p_pick);
 end $$;
 
 create or replace function public.bw_s_live_state(p_token text, p_live uuid) returns jsonb
@@ -1128,6 +1192,7 @@ create or replace function public.bw_s_live_go(p_token text, p_live uuid) return
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform bw__teacher_acct(p_token);
+  perform bw__team_build_ok(p_live);
   perform bw__live_go(p_live);
   return bw__live_state(p_live) || jsonb_build_object('members', bw__live_members(p_live));
 end $$;
@@ -1218,7 +1283,7 @@ begin
     return jsonb_build_object('error', 'Pick a team first.');
   end if;
   insert into bw_live_ready (live_id, student_id) values (p_live, sid) on conflict do nothing;
-  if (select count(*) from bw_live_ready r join bw_students x on x.id = r.student_id where r.live_id = p_live and not x.is_teacher) >= (bw__live_state(p_live) ->> 'size')::int then
+  if (select mode from bw_live where id = p_live) = 'standard' and (select count(*) from bw_live_ready r join bw_students x on x.id = r.student_id where r.live_id = p_live and not x.is_teacher) >= (bw__live_state(p_live) ->> 'size')::int then
     perform bw__live_go(p_live);
   end if;
   return bw__live_state(p_live) || jsonb_build_object('me_ready', true, 'my_plan_id', case when exists (select 1 from bw_live x where x.id = p_live and x.workout is null) then bw__plan_for(s.class_id, s.gender) ->> 'id' end);
@@ -1395,6 +1460,15 @@ begin
   delete from bw_templates where id = p_id;
 end $$;
 
+-- The exercises picked by each team in a team_build session
+create table if not exists public.bw_live_team_ex (
+  live_id uuid not null references public.bw_live(id) on delete cascade,
+  team int not null,
+  fids text[] not null default '{}',
+  updated_at timestamptz not null default now(),
+  primary key (live_id, team)
+);
+
 -- A student picks a team (first come, first served). Only the least-filled teams can be picked, so the teams stay
 -- within one student of each other: 40 students = 10 each, 39 = 10, 10, 10 and 9. Picking a team also means ready.
 create or replace function public.bw_live_pick_team(p_token text, p_live uuid, p_team int) returns jsonb
@@ -1414,7 +1488,7 @@ begin
     insert into bw_live_teams (live_id, student_id, team) values (p_live, sid, p_team);
   end if;
   insert into bw_live_ready (live_id, student_id) values (p_live, sid) on conflict do nothing;
-  if (select count(*) from bw_live_ready r join bw_students x on x.id = r.student_id where r.live_id = p_live and not x.is_teacher) >= (bw__live_state(p_live) ->> 'size')::int then
+  if l.mode = 'standard' and (select count(*) from bw_live_ready r join bw_students x on x.id = r.student_id where r.live_id = p_live and not x.is_teacher) >= (bw__live_state(p_live) ->> 'size')::int then
     perform bw__live_go(p_live);
   end if;
   return bw__live_state(p_live) || jsonb_build_object('me_ready', true, 'my_plan_id', case when l.workout is null then bw__plan_for(s.class_id, s.gender) ->> 'id' end);

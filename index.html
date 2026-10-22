@@ -143,6 +143,14 @@ details.panel[open] summary{margin-bottom:12px}
 .livenow .dot{width:12px;height:12px;border-radius:50%;background:#fff;flex:none;animation:lnpulse 1.4s ease-in-out infinite}
 @keyframes lnpulse{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.livenow .dot{animation:none}}
+.exgrid{text-align:left;margin:10px 0}
+.exreg{margin:8px 0}
+.exreg .small{color:#fff;opacity:.85;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;max-width:none}
+.exbtn{border:2px solid rgba(255,255,255,.7);background:transparent;color:#fff;border-radius:999px;padding:.35em .8em;margin:0 6px 6px 0;font:600 .95rem var(--body);cursor:pointer}
+.exbtn[aria-pressed="true"]{background:#fff;color:#15202B;border-color:#fff}
+.splitphase{font-weight:700;margin:6px 0 2px}
+.splitlist{margin:6px 0 0;padding-left:1.2em;font-size:.92rem}
+.splitlist li.now{font-weight:800}
 .teamgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:14px 0}
 .teambtn{border:0;border-radius:14px;padding:18px 10px;font:800 1.35rem var(--display);cursor:pointer}
 .teambtn small{display:block;font:600 .8rem var(--body);opacity:.92;margin-top:2px}
@@ -552,7 +560,8 @@ function makeCloud(){
     tImportTag: (tok, imp, cid, names) => rpc('bw_t_import_tag', {p_token:tok, p_import:imp, p_class_id:cid, p_names:names}),
     tImports: tok => rpc('bw_t_imports', {p_token:tok}),
     tDeleteImport: (tok, id) => rpc('bw_t_delete_import', {p_token:tok, p_import:id}),
-    tLiveStart: (tok, cid, w, c, g, l, x) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c, p_gender:g || null, p_label:l || null, p_plan_id:x?.planId || null, p_workout:x?.workout || null, p_teams:x?.teams || 0}),
+    tLiveStart: (tok, cid, w, c, g, l, x) => rpc('bw_t_live_start', {p_token:tok, p_class_id:cid, p_warm:w, p_cool:c, p_gender:g || null, p_label:l || null, p_plan_id:x?.planId || null, p_workout:x?.workout || null, p_teams:x?.teams || 0, p_pick:x?.pick || 0}),
+    liveTeamToggle: (tok, id, fid) => rpc('bw_live_team_toggle', {p_token:tok, p_live:id, p_fid:fid}),
     liveOpen: tok => rpc('bw_live_open', {p_token:tok}),
     livePickTeam: (tok, id, team) => rpc('bw_live_pick_team', {p_token:tok, p_live:id, p_team:team}),
     sTemplates: tok => rpc('bw_s_templates', {p_token:tok}),
@@ -561,7 +570,7 @@ function makeCloud(){
     tLiveState: (tok, id) => rpc('bw_t_live_state', {p_token:tok, p_live:id}),
     tLiveGo: (tok, id) => rpc('bw_t_live_go', {p_token:tok, p_live:id}),
     tLiveEnd: (tok, id) => rpc('bw_t_live_end', {p_token:tok, p_live:id}),
-    sLiveStart: (tok, ids, w, c, g, l, x) => rpc('bw_s_live_start', {p_token:tok, p_class_ids:ids, p_warm:w, p_cool:c, p_gender:g || null, p_label:l || null, p_plan_id:x?.planId || null, p_workout:x?.workout || null, p_teams:x?.teams || 0}),
+    sLiveStart: (tok, ids, w, c, g, l, x) => rpc('bw_s_live_start', {p_token:tok, p_class_ids:ids, p_warm:w, p_cool:c, p_gender:g || null, p_label:l || null, p_plan_id:x?.planId || null, p_workout:x?.workout || null, p_teams:x?.teams || 0, p_pick:x?.pick || 0}),
     sLiveState: (tok, id) => rpc('bw_s_live_state', {p_token:tok, p_live:id}),
     sLiveGo: (tok, id) => rpc('bw_s_live_go', {p_token:tok, p_live:id}),
     sLiveEnd: (tok, id) => rpc('bw_s_live_end', {p_token:tok, p_live:id}),
@@ -685,18 +694,20 @@ const Local = {
   _liveIn(L, s){ return (L.class_ids || [L.class_id]).includes(s.class_id) && (!L.only_gender || s.gender===L.only_gender || !!s.is_teacher); },
   _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id) || L.workout, ids = L.class_ids || [L.class_id];
     const members = d.students.filter(s=>!s.is_teacher && this._liveIn(L, s)).map(s=>({id:s.id, name:s.name, cls:d.classes.find(c=>c.id===s.class_id)?.name || ''})).sort((a,b)=>a.cls.localeCompare(b.cls) || a.name.localeCompare(b.name));
-    return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at, pulse_at:L.pulse_at || null, label:L.label || null, custom:!!L.workout, teams:L.teams || 0, team_members:(L.tm || []).map(m=>({student_id:m.student_id, team:m.team})),
+    return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at, pulse_at:L.pulse_at || null, label:L.label || null, custom:!!L.workout, teams:L.teams || 0, mode:L.mode || 'standard', pick_n:L.pick_n || null, team_ex:(L.tx || []).map(x=>({team:x.team, fids:[...x.fids]})), team_members:(L.tm || []).map(m=>({student_id:m.student_id, team:m.team})),
       classes:d.classes.filter(c=>ids.includes(c.id)).map(c=>c.name).sort(), plan:p ? {...p} : null, only_gender:L.only_gender||null,
       size:members.length, members, ready:L.ready.filter(id=>!d.students.find(s=>s.id===id)?.is_teacher)}; },
   _liveGo(L){ if(L.status==='waiting'){ L.status='started'; L.start_at=new Date(Date.now()+5000).toISOString(); } },
   _liveStart(d, ids, w, c, g, label, x){ g = g || null; x = x || {};
     if(!ids.length) throw new Error('Choose at least one class.');
     let P, wk = null;
-    if(x.workout){ const t = x.workout; wk = {title:String(t.title||'').slice(0, 80), note:t.note||'', work_sec:t.work_sec, rest_sec:t.rest_sec, rounds:t.rounds, exercises:t.exercises}; P = wk; }
+    if(x.pick > 0){ if(!(x.teams >= 2 && x.teams <= 8)) throw new Error('Choose 2 to 8 teams.'); if(!(x.pick >= 4 && x.pick <= 12)) throw new Error('Choose 4 to 12 exercises per team.');
+      const t = x.workout || {}; wk = {title:'Team workout', note:'', work_sec:t.work_sec, rest_sec:t.rest_sec, rounds:t.rounds, exercises:[]}; P = wk; }
+    else if(x.workout){ const t = x.workout; wk = {title:String(t.title||'').slice(0, 80), note:t.note||'', work_sec:t.work_sec, rest_sec:t.rest_sec, rounds:t.rounds, exercises:t.exercises}; P = wk; }
     else if(x.planId){ P = (d.plans||[]).find(p=>p.id===x.planId); if(!P) throw new Error('This challenge no longer exists.'); }
     else { P = ids.map(id=>this._plan(d, id, g)).find(Boolean); if(!P) throw new Error('Set a challenge workout for this class first.'); }
     (d.live ||= []).forEach(x=>{ if(x.status!=='ended' && (x.class_ids || [x.class_id]).some(id=>ids.includes(id))) x.status='ended'; });
-    const L={id:uid(), class_id:ids[0], class_ids:[...ids], only_gender:g, label:(label || '').trim().slice(0, 60) || null, workout:wk, plan_id:wk ? null : P.id, teams:(x.teams >= 2 && x.teams <= 8) ? x.teams : 0, tm:[], warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
+    const L={id:uid(), class_id:ids[0], class_ids:[...ids], only_gender:g, label:(label || '').trim().slice(0, 60) || null, workout:wk, plan_id:wk ? null : P.id, teams:(x.teams >= 2 && x.teams <= 8) ? x.teams : 0, tm:[], mode:x.pick > 0 ? 'team_build' : 'standard', pick_n:x.pick > 0 ? x.pick : null, tx:[], warm:w!==false, cool:c!==false, status:'waiting', start_at:null, created_at:new Date().toISOString(), ready:[]};
     d.live.push(L); this._save(d); return this._liveState(d,L); },
   _livePulse(L){ if(L && L.status==='started' && !L.pulse_at) L.pulse_at = new Date(Date.now()+3000).toISOString(); },
   async tLivePulse(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._livePulse(L); this._save(d); return this._liveState(d,L); },
@@ -708,17 +719,29 @@ const Local = {
   async tLiveList(tok){ return this._liveList(this._t(tok)); },
   async sLiveList(tok){ return this._liveList(this._acct(tok)); },
   async tLiveState(tok, id){ const d=this._t(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
-  async tLiveGo(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
+  _buildOk(L){ if(L.mode !== 'team_build') return; const teams = [...new Set((L.tm || []).map(m=>m.team))];
+    if(!teams.length) throw new Error('No team has joined yet.');
+    if(teams.some(t=>((L.tx || []).find(x=>x.team===t)?.fids.length || 0) !== L.pick_n)) throw new Error(`Every team needs exactly ${L.pick_n} exercises before you start.`); },
+  async tLiveGo(tok, id){ const d=this._t(tok), L=d.live.find(x=>x.id===id); this._buildOk(L); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async tLiveEnd(tok, id){ const d=this._t(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
   async sLiveStart(tok, ids, w, c, g, l, x){ return this._liveStart(this._acct(tok), ids, w, c, g, l, x); },
   async sLiveState(tok, id){ const d=this._acct(tok); return this._liveState(d, d.live.find(x=>x.id===id)); },
-  async sLiveGo(tok, id){ const d=this._acct(tok), L=d.live.find(x=>x.id===id); this._liveGo(L); this._save(d); return this._liveState(d,L); },
+  async sLiveGo(tok, id){ const d=this._acct(tok), L=d.live.find(x=>x.id===id); this._buildOk(L); this._liveGo(L); this._save(d); return this._liveState(d,L); },
   async sLiveEnd(tok, id){ const d=this._acct(tok), L=(d.live||[]).find(x=>x.id===id); if(L) L.status='ended'; this._save(d); },
   async liveCheck(tok){ const [d,s]=this._stu(tok); const L=(d.live||[]).filter(x=>x.status!=='ended' && this._liveIn(x, s) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)[0];
     return L ? {...this._liveState(d,L), me_ready:L.ready.includes(s.id), my_plan_id:L.workout ? null : (this._plan(d, s.class_id, s.gender||null)?.id || null)} : null; },
   // pick a team: only the least-filled teams can be picked, so teams never differ by more than one student
   async liveOpen(tok){ const [d,s]=this._stu(tok); return (d.live||[]).filter(x=>x.status!=='ended' && this._liveIn(x, s) && Date.now()-new Date(x.created_at).getTime() < 3*36e5).sort(newestFirst)
     .map(L=>({...this._liveState(d,L), me_ready:L.ready.includes(s.id), my_plan_id:L.workout ? null : (this._plan(d, s.class_id, s.gender||null)?.id || null)})); },
+  // a student adds or removes an exercise of the team's workout (at most pick_n)
+  async liveTeamToggle(tok, id, fid){ const [d,s]=this._stu(tok); if(s.is_teacher) return {error:'TEACHER does not pick exercises.'};
+    const L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && this._liveIn(x, s) && x.mode==='team_build'); if(!L) return {error:'This live session has ended.'};
+    if(L.status==='started') return {error:'The session has started: the workout is fixed.'};
+    const mine=(L.tm||[]).find(m=>m.student_id===s.id)?.team; if(!mine) return {error:'Pick a team first.'};
+    if(!/^[a-z0-9_]{1,30}$/.test(fid||'')) return {error:'Unknown exercise.'};
+    L.tx ||= []; let t=L.tx.find(x=>x.team===mine); if(!t){ t={team:mine, fids:[]}; L.tx.push(t); }
+    if(t.fids.includes(fid)) t.fids = t.fids.filter(x=>x!==fid); else if(t.fids.length < L.pick_n) t.fids.push(fid); else return {error:'Your team already has '+L.pick_n+' exercises. Remove one first.', ...this._liveState(d,L)};
+    this._save(d); return {...this._liveState(d,L), me_ready:true}; },
   async livePickTeam(tok, id, team){ const [d,s]=this._stu(tok); if(s.is_teacher) return {error:'TEACHER does not join a team.'};
     const L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && this._liveIn(x, s)); if(!L) return {error:'This live session has ended.'};
     if(!(L.teams > 1) || !(team >= 1 && team <= L.teams)) return {error:'This session has no such team.'};
@@ -727,13 +750,13 @@ const Local = {
       if(cnt(team) > mn) return {error:'That team is full. Pick a team with free places.', full:true, ...this._liveState(d, L)};
       L.tm.push({student_id:s.id, team, at:Date.now()}); }
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
-    const stt = this._liveState(d, L); if(stt.ready.length >= stt.size) this._liveGo(L);
+    const stt = this._liveState(d, L); if((L.mode || 'standard') === 'standard' && stt.ready.length >= stt.size) this._liveGo(L);
     this._save(d); return {...this._liveState(d, L), me_ready:true, my_plan_id:L.workout ? null : (this._plan(d, s.class_id, s.gender||null)?.id || null)}; },
   async liveReady(tok, id){ const [d,s]=this._stu(tok), L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && this._liveIn(x, s));
     if(!L) throw new Error('This live session has ended.');
     if(L.teams > 1 && !s.is_teacher && !(L.tm || []).some(m=>m.student_id===s.id)) return {error:'Pick a team first.'};
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
-    if(this._liveState(d,L).ready.length >= this._liveState(d,L).size) this._liveGo(L);
+    if((L.mode || 'standard') === 'standard' && this._liveState(d,L).ready.length >= this._liveState(d,L).size) this._liveGo(L);
     this._save(d); return {...this._liveState(d,L), me_ready:true, my_plan_id:L.workout ? null : (this._plan(d, s.class_id, s.gender||null)?.id || null)}; },
   _liveBoard(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id), ids = L.class_ids || [L.class_id], best = new Map();
     d.sessions.filter(x=>x.live_id===L.id && x.student_id).forEach(x=>{ const b = best.get(x.student_id); if(!b || pointsOf(x) > pointsOf(b)) best.set(x.student_id, x); });
@@ -1613,6 +1636,15 @@ function timerCrashed(e){
 }
 window.addEventListener('error', e => timerCrashed(e.error || e.message));
 window.addEventListener('unhandledrejection', e => timerCrashed(e.reason));
+// The phases of a workout, in order, with their lengths (same as the student's timer)
+const phaseTimeline = (n, work, rest, rounds, warm, cool) => {
+  const t = [{type:'ready', dur:warm ? 10 : 12}];
+  if(warm){ WARMUP.forEach(()=>t.push({type:'warm', dur:30})); t.push({type:'go', dur:12}); }
+  for(let r=0; r<rounds; r++) for(let i=0; i<n; i++){ t.push({type:'work', dur:work, ex:i}); t.push(r===rounds-1 && i===n-1 ? {type:'rest', dur:20, ex:i, final:true} : {type:'rest', dur:rest, ex:i}); }
+  t.push({type:'pulseprep', dur:10}, {type:'pulse', dur:30}, {type:'pulselog', dur:20});
+  if(cool) COOLDOWN.forEach(()=>t.push({type:'cool', dur:30}));
+  return t;
+};
 const stageOf = ph => { const names = P.stages, w = P.warmOn ? 1 : 0;
   return ph.type==='warm' || (ph.type==='ready' && P.warmOn) ? 0 : ph.type==='ready' || ph.type==='go' || ph.type==='work' || ph.type==='rest' ? w : ph.type.startsWith('pulse') ? w + 1 : w + 2; };
 const stagesHTML = ph => { const cur = stageOf(ph);
@@ -1902,6 +1934,7 @@ const TUTORIAL = [
   ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],
   ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
   ['Pick your team', 'If your teacher turns on teams, tapping a team (Blue, Red, Yellow, Green…) makes you ready. First come, first served, but teams stay balanced: a team that already has more players than another is closed. With 40 students and 4 teams you get 10 per team. Your team colour shows during the workout and on the leaderboard.', 'teams'],
+  ['Pick your team’s exercises', 'In a "build your workout" session, once you are in a team you and your teammates choose the exercises together (the number is set by your teacher). Tap a movement to add or remove it. You each do them at your own level. When the team is full, wait: the teacher starts everyone together.', 'teampick'],
   ['Count your pulse together', 'In a live challenge, the red screen says <b>Wait</b>: put your fingers on your pulse and keep still. When your teacher presses the button, the 30-second count starts on every screen 3 seconds later. Count every beat until it reaches 0, then the stretches begin.', 'pulse-live'],
   ['Write your beats', 'As soon as the 30 seconds end, you have <b>20 seconds</b> to type the beats you counted. The app doubles it into your beats per minute (bpm). Then the stretches begin.', 'pulse-log'],
   ['Save your workout', 'Check your scores, choose how hard it felt from 1 to 10, and save. Every rep is 1 point and every second held is half a point, and harder levels are worth more.', 'summary'],
@@ -3017,11 +3050,18 @@ function showLiveLobby(api, st, back){
 const TEAMS = [['Blue','#2B8FC6','#fff'], ['Red','#DD4B26','#fff'], ['Yellow','#F2C230','#1b1b1b'], ['Green','#3FA374','#fff'], ['Purple','#8E5BBE','#fff'], ['Orange','#EE7B2D','#1b1b1b'], ['Pink','#E0568C','#fff'], ['Teal','#1F9E9E','#fff']];
 const teamChip = n => TEAMS[n-1] ? `<span class="teamchip" style="background:${TEAMS[n-1][1]};color:${TEAMS[n-1][2]}">${TEAMS[n-1][0]}</span>` : '';
 const myTeamOf = st => (st.team_members || []).find(m=>m.student_id === S.student?.id)?.team || null;
+const MODE_HTML = `<label class="field" style="max-width:520px;margin:14px 0 0"><span>What do the students do?</span><select id="lvMode"><option value="same">Everyone does the same workout</option><option value="build">Each team builds its own workout</option></select></label>
+  <div id="lvBuild" hidden class="panel" style="max-width:520px;margin-top:10px"><p class="small" style="margin:0 0 8px;max-width:none">Students join a team (balanced), then each team picks its exercises. You see every team's workout on a split screen and start the live session when all teams are complete. Choose 2 or more teams below.</p>
+    <div class="row2"><label class="field"><span>Exercises per team</span><select id="lvPick">${[4,5,6,7,8,9,10,11,12].map(n=>`<option value="${n}" ${n===8?'selected':''}>${n}</option>`).join('')}</select></label>
+    <label class="field"><span>Rounds</span><select id="lvRounds"><option>1</option><option selected>2</option><option>3</option></select></label></div>
+    <div class="row2"><label class="field"><span>Work</span><select id="lvWorkS"><option value="30">30 s</option><option value="40" selected>40 s</option><option value="45">45 s</option></select></label>
+    <label class="field"><span>Rest</span><select id="lvRestS"><option value="15">15 s</option><option value="20" selected>20 s</option><option value="30">30 s</option></select></label></div></div>`;
 const TEAMS_HTML = `<label class="field" style="max-width:520px;margin:14px 0 0"><span>Teams (optional)</span><select id="lvTeams"><option value="0">No teams</option>${[2,3,4,5,6,7,8].map(n=>`<option value="${n}">${n} teams: ${TEAMS.slice(0, n).map(t=>t[0]).join(', ')}</option>`).join('')}</select></label>
   <p class="small muted" style="margin:4px 0 0;max-width:none">Students pick a team after tapping ready, first come first served, and teams stay balanced (40 students and 4 teams: 10 each; 39: 10, 10, 10, 9). A team with fewer players counts the score of its last player twice.</p>`;
-const WORK_HTML = '<label class="field" style="max-width:520px;margin:14px 0 0"><span>Workout to run</span><select id="lvWork"><option value="">Loading…</option></select></label><p class="small muted" id="lvWorkInfo" style="margin:4px 0 0;max-width:none"></p>' + TEAMS_HTML;
+const WORK_HTML = MODE_HTML + '<label class="field" id="lvWorkBox" style="max-width:520px;margin:14px 0 0"><span>Workout to run</span><select id="lvWork"><option value="">Loading…</option></select></label><p class="small muted" id="lvWorkInfo" style="margin:4px 0 0;max-width:none"></p>' + TEAMS_HTML;
 async function fillWorkouts(api, planChoice){
   const sel = $('#lvWork'); if(!sel) return;
+  const md = $('#lvMode'); if(md) md.onchange = () => { $('#lvBuild').hidden = md.value !== 'build'; $('#lvWorkBox').hidden = md.value === 'build'; $('#lvWorkInfo').hidden = md.value === 'build'; };
   let list = []; try{ list = await api.templates(); }catch(e){}
   if(!$('#lvWork')) return;
   const mins = t => Math.round((t.rounds*t.exercises.length*t.work_sec + Math.max(0, t.rounds*t.exercises.length-1)*t.rest_sec)/60);
@@ -3038,6 +3078,10 @@ async function fillWorkouts(api, planChoice){
 // the choice as the server wants it
 function workChoice(){
   const sel = $('#lvWork'), v = sel?.value || '', teams = +($('#lvTeams')?.value) || 0;
+  if($('#lvMode')?.value === 'build'){
+    if(teams < 2){ toast('Choose 2 or more teams: each team builds its own workout.'); return null; }
+    return {teams, pick:+$('#lvPick').value, workout:{work_sec:+$('#lvWorkS').value, rest_sec:+$('#lvRestS').value, rounds:+$('#lvRounds').value}};
+  }
   if(!v){ toast('Choose the workout to run.'); return null; }
   if(v === 'auto') return {teams};
   if(v.startsWith('plan:')) return {planId:v.slice(5), teams};
@@ -3122,8 +3166,13 @@ function liveTeacherRender(st){
       <div class="btns"><button class="btn" id="lvGo">Start now</button><button class="btn ghost" id="lvEnd">Cancel the session</button></div></div>
     <div class="panel" style="margin-top:12px"><ul class="ready">${studs.map(s=>`<li class="${ready.has(s.id) ? 'on' : ''}">${ready.has(s.id) ? '✓' : '…'} ${esc(s.name)}${many ? ` <span class="muted small">${esc(s.cls)}</span>` : ''}</li>`).join('')}</ul></div>`;
   if(st.teams > 1){
-    const names = t => (st.team_members || []).filter(m=>m.team===t).map(m=>studs.find(x=>x.id===m.student_id)?.name || '?');
-    $('#lv').insertAdjacentHTML('beforeend', `<div class="teamgrid">${Array.from({length:st.teams}, (_, i)=>i+1).map(t=>`<div class="panel" style="border-top:8px solid ${TEAMS[t-1][1]}"><b>${TEAMS[t-1][0]}</b> <span class="muted small">${names(t).length} player${names(t).length===1 ? '' : 's'}</span><div class="small" style="max-width:none;margin-top:4px">${names(t).map(esc).join(', ') || '<span class="muted">no one yet</span>'}</div></div>`).join('')}</div>`);
+    const build = st.mode === 'team_build', names = t => (st.team_members || []).filter(m=>m.team===t).map(m=>studs.find(x=>x.id===m.student_id)?.name || '?');
+    const picks = t => (st.team_ex || []).find(x=>x.team===t)?.fids || [];
+    const withPlayers = Array.from({length:st.teams}, (_, i)=>i+1).filter(t=>names(t).length > 0), bad = withPlayers.filter(t=>picks(t).length !== st.pick_n);
+    $('#lv').insertAdjacentHTML('beforeend', `${build ? `<p class="small" style="max-width:none;margin:12px 0 0">Each team picks <b>${st.pick_n}</b> exercises. ${bad.length ? `<b>Waiting for ${bad.map(t=>TEAMS[t-1][0]).join(', ')}.</b>` : withPlayers.length ? '<b>All teams are complete: you can start.</b>' : 'Waiting for students to join a team.'}</p>` : ''}
+      <div class="teamgrid">${Array.from({length:st.teams}, (_, i)=>i+1).map(t=>`<div class="panel" style="border-top:8px solid ${TEAMS[t-1][1]}"><b>${TEAMS[t-1][0]}</b> <span class="muted small">${names(t).length} player${names(t).length===1 ? '' : 's'}${build && names(t).length ? ` · ${picks(t).length}/${st.pick_n} exercises${picks(t).length === st.pick_n ? ' ✓' : ''}` : ''}</span><div class="small" style="max-width:none;margin-top:4px">${names(t).map(esc).join(', ') || '<span class="muted">no one yet</span>'}</div>
+        ${build && names(t).length ? `<ul class="splitlist">${picks(t).map(fid=>`<li>${esc(FAM[fid]?.name || fid)}</li>`).join('') || '<li class="muted">no exercise yet</li>'}</ul>` : ''}</div>`).join('')}</div>`);
+    if(build) $('#lvGo').disabled = !withPlayers.length || bad.length > 0;
   }
   $('#lvGo').onclick = async () => {
     const waiting = studs.length - n;
@@ -3133,7 +3182,41 @@ function liveTeacherRender(st){
   $('#lvEnd').onclick = async () => { const back = LIVE.back; try{ await LIVE.api.end(LIVE.id); }catch(e){} liveTeacherStop(); toast('Session cancelled'); back(); };
 }
 // The teacher's own timer, in step with the class (nothing is saved for the teacher)
+// Split screen: every team does its own workout; the teacher sees where each team is and starts the heart-rate count for all
+function liveSplitRun(st){
+  if(LIVE.running) return;
+  LIVE.running = true; clearInterval(LIVE.timer); LIVE.timer = null;
+  const {api, back, id} = LIVE; let cur = st; const p = st.plan, N = st.pick_n;
+  const tl = phaseTimeline(N, p.work_sec, p.rest_sec, p.rounds, st.warm, st.cool), prep = tl.findIndex(x=>x.type==='pulseprep');
+  setView(`<p><button class="btn ghost small" id="back">Back</button></p><h1>Live workout</h1>
+    <p class="muted">Each team does its own workout at the same time. When everyone has found their pulse, start the heart-rate count for all teams.</p>
+    <div id="splitbar"></div><div class="teamgrid" id="split"></div>`);
+  $('#back').onclick = () => { LIVE = null; back(); };
+  const label = (ph, names) => ({ready:'Get ready', warm:'Warm-up', go:'Are you ready?', work:'Exercise ' + ((ph.ex || 0) + 1) + ' of ' + N + (names ? ': ' + names[ph.ex] : ''), rest:ph.final ? 'Write the last score' : 'Rest',
+    pulseprep:'Heart rate: find the pulse', pulse:'Count the beats', pulselog:'Write the beats', cool:'Cool-down'}[ph.type]);
+  const ends = () => { let t = liveStartLocal(cur), e = []; const pa = cur.pulse_at ? liveLocal(cur, cur.pulse_at) : null;
+    tl.forEach((ph, k)=>{ if(k < prep) e.push(t += ph.dur*1000); else if(k === prep) { t = pa; e.push(pa == null ? Infinity : pa); } else e.push(t += ph.dur*1000); }); return e; };
+  let done = false;
+  const draw = () => {
+    if(!$('#split')) return;
+    const now = Date.now(), e = ends(), k = e.findIndex(x=>x > now), ph = k < 0 ? null : tl[k], left = k < 0 ? 0 : (isFinite(e[k]) ? Math.ceil((e[k] - now)/1000) : null);
+    const names = t => (cur.team_members || []).filter(m=>m.team===t).length, picks = t => (cur.team_ex || []).find(x=>x.team===t)?.fids || [];
+    $('#splitbar').innerHTML = ph ? `<div class="panel feature"><div class="muted small">All teams</div><div class="h3">${esc(label(ph))}${left == null ? '' : ' · ' + left + ' s'}</div>
+        ${ph.type === 'pulseprep' && !cur.pulse_at ? '<p style="margin:0"><button class="btn" id="pulseAll">Start the 30-second count for everyone</button></p>' : ''}</div>`
+      : '<div class="panel feature"><div class="h3">The workout is finished</div><p style="margin:0"><button class="btn" id="splitRes">See the results</button></p></div>';
+    if($('#pulseAll')) $('#pulseAll').onclick = async () => { $('#pulseAll').disabled = true; try{ cur = await api.pulse(id); }catch(x){ toast(x.message); } };
+    if($('#splitRes')) $('#splitRes').onclick = () => showLiveBoard(id, back);
+    if(ph && ph.type === 'work' && !done) done = false;
+    $('#split').innerHTML = Array.from({length:cur.teams}, (_, i)=>i+1).filter(t=>names(t) > 0).map(t=>{ const fids = picks(t), nm = fids.map(fid=>FAM[fid]?.name || fid);
+      return `<div class="panel" style="border-top:8px solid ${TEAMS[t-1][1]}"><b>${TEAMS[t-1][0]}</b> <span class="muted small">${names(t)} players</span>
+        <div class="splitphase">${ph ? esc(label(ph, nm)) : 'Finished'}</div>
+        <ol class="splitlist">${nm.map((n, j)=>`<li class="${ph && ph.type === 'work' && ph.ex === j ? 'now' : ''}">${esc(n)}</li>`).join('')}</ol></div>`; }).join('');
+  };
+  draw(); const t1 = setInterval(() => { if(!$('#split')) return clearInterval(t1); draw(); }, 500);
+  const t2 = setInterval(async () => { if(!$('#split')) return clearInterval(t2); try{ const s2 = await api.state(id); if(s2) cur = s2; }catch(x){} }, 2000);
+}
 function liveTeacherRun(st){
+  if(st.mode === 'team_build') return liveSplitRun(st);
   if(LIVE.running) return;
   LIVE.running = true; clearInterval(LIVE.timer); LIVE.timer = null;
   if(LIVE.api === LIVE_API.acct){ LIVE = null; return liveJoin({...st, my_plan_id:st.plan.id}, LIVE_API.acct); }   // TEACHER does it like a student: the score is saved
@@ -3196,6 +3279,17 @@ function liveOverlay(st){
     if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-declined', st.id); ov.remove(); };
     return;
   }
+  if(st.mode === 'team_build' && mine && st.status !== 'started'){
+    const fids = (st.team_ex || []).find(t=>t.team===mine)?.fids || [], N = st.pick_n;
+    ov.innerHTML = `<div class="liveov-in" style="max-width:560px"><div class="p-phase">${teamChip(mine)} team</div><h2>Pick your team's exercises</h2>
+      <p>Choose <b>${N}</b> exercises together with your team: everyone in the team can add or remove. You will each do them at your own level.</p>
+      <p><b>${fids.length} of ${N}</b> ${fids.length === N ? '✓ Your team is ready. Wait for your teacher to start.' : ''}</p>
+      <div class="exgrid">${REGIONS.map(r=>`<div class="exreg"><div class="small">${r}</div>${FAMILIES.filter(f=>f.region===r).map(f=>`<button type="button" class="exbtn" data-fid="${f.id}" aria-pressed="${fids.includes(f.id)}">${esc(f.name)}</button>`).join('')}</div>`).join('')}</div>
+      <p><button class="btn ghost small" id="lvLater">Not now</button></p></div>`;
+    $$('#liveov [data-fid]').forEach(b=>b.onclick = async () => { try{ const r = await Store.liveTeamToggle(S.token, st.id, b.dataset.fid); if(r?.error){ toast(r.error); if(r.team_ex) liveOverlay(r); return; } liveOverlay(r); }catch(e){ toast(e.message); } });
+    if($('#lvLater')) $('#lvLater').onclick = () => { tabStore.set('bwb-live-later', st.id); ov.remove(); };
+    return;
+  }
   ov.innerHTML = `<div class="liveov-in"><div class="p-phase">Live session</div><h2>${esc(p.title)}</h2>${mine ? `<p>${teamChip(mine)} team</p>` : ''}
     <p>${p.exercises.length} exercises, ${p.rounds} round${p.rounds===1 ? '' : 's'}${st.warm ? ', with warm-up' : ''}${st.cool ? ' and cool-down' : ''}.</p>
     ${st.status === 'started'
@@ -3213,7 +3307,12 @@ function liveOverlay(st){
 }
 function liveJoin(st, leader){
   tabStore.set('bwb-live-done', st.id); $('#liveov')?.remove();
-  const p = st.plan;
+  let p = st.plan;
+  if(st.mode === 'team_build'){   // each team does the workout it picked
+    const t = myTeamOf(st), fids = (st.team_ex || []).find(x=>x.team===t)?.fids || [];
+    if(!t || !fids.length){ toast('Pick a team and its exercises first.'); return liveOverlay(st); }
+    p = {...p, title:TEAMS[t-1][0] + ' team', exercises:fids.map(fid=>({fid, lvl:1, free:true}))};
+  }
   S.settings = {work:p.work_sec, rest:p.rest_sec, rounds:p.rounds};
   S.sel = p.exercises.filter(x=>FAM[x.fid]).map(x=>{ const f = S.A?.fams[x.fid]; return {fam:x.fid, lvl:x.free && f ? f.level : x.lvl}; });
   S.planId = st.my_plan_id || p.id;   // a student from another form gets it counted for their own form's challenge
@@ -3350,6 +3449,8 @@ const TEACHER_GUIDE = [
     ['Choose the workout to run', 'When you open a live session, the page asks <b>Workout to run</b>: pick one of your <b>Saved challenges</b> (the ones you set before, and any new one you add), or the challenge set for the forms. Nothing is chosen for you. From a class panel, that panel’s challenge is already selected. The lobby shows <b>Workout:</b> and its name, and the workout is the same for every form in the session. A saved challenge chosen here does not count for the students’ own class challenge; their scores go on the live leaderboard.', 'acct'],
     ['Teams in a live challenge', 'When you open a session, <b>Teams (optional)</b> lets you choose 2 to 8 teams: Blue, Red, Yellow, Green, Purple, Orange, Pink, Teal. After the students tap their team the lobby shows each team with its players. Students choose first come, first served, but a team closes while it has more players than another, so teams are always within one student of each other: 40 students and 4 teams make 10 each, 39 make 10, 10, 10 and 9. TEACHER does not join a team.', 'teacher/teams'],
     ['Team ranking', 'The live leaderboard adds a <b>Team ranking</b>: each team\u2019s points are the sum of its players\u2019 scores. A team with fewer players counts the score of its <b>last player to join</b> twice, so every team has the same number of scores (with 39 students, the team of 9 counts one score twice). The list below shows everyone with their team colour.', 'teacher/teamboard'],
+    ['Teams build their own workout', 'In <b>Mode</b> choose <b>Each team builds its own workout</b>, then the number of exercises per team and the timings (teams: 2 or more). Students join a team, then pick the exercises. The lobby shows each team’s picks and keeps <b>Start</b> locked until every team has exactly the right number.', 'teacher/teambuild'],
+    ['Split screen', 'When you press Start, your screen is split in one column per team with its own workout and current exercise. All teams follow the same timer. At the heart-rate wait, one button starts the 30-second count for everyone.', 'teacher/split'],
     ['Several teachers at once', 'When colleagues prepare live sessions at the same time, every <b>Train together</b> and <b>Start a live challenge</b> page starts with the list of <b>Open live sessions</b>: its name, the forms, the challenge and how many students are ready. Press <b>Open this session</b> to run the one you want (ready list, Start now), <b>Rejoin the timer</b> if it is already running, or <b>Results</b>. Give your session a name when you open it (for example "8BC boys with Mr Leo") so colleagues recognise it. Opening a new session for the same forms replaces the old one.', 'livelist'],
     ['Several forms together, as TEACHER', 'Log in as <b>TEACHER</b> in your form and press <b>Start a live challenge</b>. Tick the forms that take part (for example 8B and 8C) and choose everyone, boys or girls. You do the workout too, and your score is saved and shown with a <b>Teacher</b> tag. Keep your own form ticked. Give all the forms the same challenge beforehand so everyone does the same workout. If your phone crashes or the page reloads, log in as TEACHER again: <b>Rejoin the timer</b> puts you back in step with the class, and <b>See the results</b> opens the live leaderboard.', 'acct'],
     ['The live leaderboard', 'After the workout everyone counts their pulse, saves their score and sees one leaderboard for the whole live challenge: all the forms together, with each name\'s form, bpm and points. It updates as others save. Each result also counts for the student\'s own form\'s challenge.', 'lvboard']]],
