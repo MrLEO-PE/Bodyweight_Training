@@ -694,7 +694,7 @@ const Local = {
   _liveIn(L, s){ return (L.class_ids || [L.class_id]).includes(s.class_id) && (!L.only_gender || s.gender===L.only_gender || !!s.is_teacher); },
   _liveState(d, L){ const p = (d.plans||[]).find(x=>x.id===L.plan_id) || L.workout, ids = L.class_ids || [L.class_id];
     const members = d.students.filter(s=>!s.is_teacher && this._liveIn(L, s)).map(s=>({id:s.id, name:s.name, cls:d.classes.find(c=>c.id===s.class_id)?.name || ''})).sort((a,b)=>a.cls.localeCompare(b.cls) || a.name.localeCompare(b.name));
-    return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at, pulse_at:L.pulse_at || null, label:L.label || null, custom:!!L.workout, teams:L.teams || 0, mode:L.mode || 'standard', pick_n:L.pick_n || null, team_ex:(L.tx || []).map(x=>({team:x.team, fids:[...x.fids]})), team_members:(L.tm || []).map(m=>({student_id:m.student_id, team:m.team})),
+    return {id:L.id, class_id:L.class_id, status:L.status, start_at:L.start_at, server_now:new Date().toISOString(), warm:L.warm, cool:L.cool, created_at:L.created_at, pulse_at:L.pulse_at || null, label:L.label || null, custom:!!L.workout, teams:L.teams || 0, mode:L.mode || 'standard', pick_n:L.pick_n || null, team_ex:(L.tx || []).map(x=>({team:x.team, fids:[...x.fids]})), team_members:(L.tm || []).map(m=>({student_id:m.student_id, team:m.team, name:(d.students.find(x=>x.id===m.student_id)||{}).name})),
       classes:d.classes.filter(c=>ids.includes(c.id)).map(c=>c.name).sort(), plan:p ? {...p} : null, only_gender:L.only_gender||null,
       size:members.length, members, ready:L.ready.filter(id=>!d.students.find(s=>s.id===id)?.is_teacher)}; },
   _liveGo(L){ if(L.status==='waiting'){ L.status='started'; L.start_at=new Date(Date.now()+5000).toISOString(); } },
@@ -746,7 +746,12 @@ const Local = {
     const L=(d.live||[]).find(x=>x.id===id && x.status!=='ended' && this._liveIn(x, s)); if(!L) return {error:'This live session has ended.'};
     if(!(L.teams > 1) || !(team >= 1 && team <= L.teams)) return {error:'This session has no such team.'};
     L.tm ||= [];
-    if(!L.tm.some(m=>m.student_id===s.id)){ const cnt = t => L.tm.filter(m=>m.team===t).length, mn = Math.min(...Array.from({length:L.teams}, (_, i)=>cnt(i+1)));
+    const was = L.tm.find(m=>m.student_id===s.id);
+    if(was && was.team !== team){ if(L.status !== 'waiting') return {error:'The session has started: you cannot change team now.', ...this._liveState(d, L)};
+      const others = L.tm.filter(m=>m.student_id!==s.id), cnt = t => others.filter(m=>m.team===t).length, mn = Math.min(...Array.from({length:L.teams}, (_, i)=>cnt(i+1)));
+      if(cnt(team) > mn) return {error:'That team is full. Pick a team with free places.', full:true, ...this._liveState(d, L)};
+      was.team = team; was.at = Date.now(); }
+    if(!was){ const cnt = t => L.tm.filter(m=>m.team===t).length, mn = Math.min(...Array.from({length:L.teams}, (_, i)=>cnt(i+1)));
       if(cnt(team) > mn) return {error:'That team is full. Pick a team with free places.', full:true, ...this._liveState(d, L)};
       L.tm.push({student_id:s.id, team, at:Date.now()}); }
     if(!L.ready.includes(s.id)) L.ready.push(s.id);
@@ -1933,7 +1938,7 @@ const TUTORIAL = [
   ['Log your score in the rest', 'During the rest, type how many reps you did, or how many seconds you held. Use the + and − buttons or type the number.', 'rest'],
   ['Write your last score', 'The last exercise has no rest, so you get <b>20 seconds</b> right after it to write its score. Do it straight away while you remember.', 'last'],
   ['Heart rate check', 'After the last exercise the screen turns red. Stop and put two fingers (not your thumb) on your wrist, below the thumb, or on the side of your neck. When the 30-second clock starts, count every beat until it reaches 0, and remember your number. In a live challenge, wait with your fingers on your pulse: your teacher starts the count for everyone.', 'pulse'],
-  ['Pick your team', 'If your teacher turns on teams, tapping a team (Blue, Red, Yellow, Green…) makes you ready. First come, first served, but teams stay balanced: a team that already has more players than another is closed. With 40 students and 4 teams you get 10 per team. Your team colour shows during the workout and on the leaderboard.', 'teams'],
+  ['Pick your team', 'If your teacher turns on teams, tapping a team (Blue, Red, Yellow, Green…) makes you ready. First come, first served, but teams stay balanced: a team that already has more players than another is closed. With 40 students and 4 teams you get 10 per team. You can see who is in each team and change team until the teacher starts (a team that would unbalance the teams is closed). Your team colour shows during the workout and on the leaderboard.', 'teams'],
   ['Pick your team’s exercises', 'In a "build your workout" session, once you are in a team the app opens the exercise menu for your team: you and your teammates choose the exercises together (the number is set by your teacher). Tap one level of a movement to add it (tap it again to remove it, tap another level to swap). If you leave, the notice on your home page says <b>Set the exercises</b>. You each do them at your own level. When the team is full, wait: the teacher starts everyone together.', 'teampick'],
   ['Count your pulse together', 'In a live challenge, the red screen says <b>Wait</b>: put your fingers on your pulse and keep still. When your teacher presses the button, the 30-second count starts on every screen 3 seconds later. Count every beat until it reaches 0, then the stretches begin.', 'pulse-live'],
   ['Write your beats', 'As soon as the 30 seconds end, you have <b>20 seconds</b> to type the beats you counted. The app doubles it into your beats per minute (bpm). Then the stretches begin.', 'pulse-log'],
@@ -3286,8 +3291,9 @@ function liveOverlay(st){
     ${st.status === 'started'
       ? `<p><b>The session has started.</b> Join now and you will be in step with your class.</p><p><button class="btn" id="lvJoin">Join now</button></p><p><button class="btn ghost small" id="lvNo">Not now</button></p>`
       : st.me_ready
-        ? `<p><b>You are ready.</b> Waiting for the others: ${n} of ${st.size} ready. It starts by itself.</p>`
+        ? `<p><b>You are ready.</b> Waiting for the others: ${n} of ${st.size} ready. It starts by itself.</p>${mine ? teamBoard(st, mine) : ''}`
         : `<p>Your teacher is starting the challenge workout with your class. ${n} of ${st.size} ready.</p><p><button class="btn" id="lvReady">I'm ready</button></p><p><button class="btn ghost small" id="lvLater">Not now</button></p>`}</div>`;
+  bindSwitch(st, liveOverlay);
   if($('#lvReady')) $('#lvReady').onclick = async () => {
     try{ audio = audio || new (window.AudioContext||window.webkitAudioContext)(); audio.resume && audio.resume(); }catch(e){}   // sound needs a tap first
     try{ const s2 = await Store.liveReady(S.token, st.id); if(s2?.error) throw new Error(s2.error); livePoll(); if(s2.status === 'started') liveJoin(s2); else liveOverlay(s2); }catch(e){ toast(e.message); ov.remove(); }
@@ -3297,6 +3303,10 @@ function liveOverlay(st){
   if($('#lvNo')) $('#lvNo').onclick = () => { tabStore.set('bwb-live-declined', st.id); ov.remove(); };
 }
 // The team's shared exercise menu: the same screen as the builder; every tap adds or removes a movement for the whole team.
+// Who is in which team, with a button to move to another team (before the start; a team that would unbalance the teams is closed)
+const teamBoard = (st, mine) => { const mem = t => (st.team_members || []).filter(m=>m.team===t), cnt = t => mem(t).filter(m=>m.student_id !== S.student?.id).length, mn = Math.min(...Array.from({length:st.teams}, (_, i)=>cnt(i+1)));
+  return `<div class="teamgrid tboard">${Array.from({length:st.teams}, (_, i)=>i+1).map(t=>`<div class="panel" style="border-top:8px solid ${TEAMS[t-1][1]};text-align:left"><b>${TEAMS[t-1][0]}</b> <span class="muted small">${mem(t).length}</span><div class="small">${mem(t).map(m=>m.student_id === S.student?.id ? '<b>You</b>' : esc(m.name || '?')).join(', ') || '<span class="muted">nobody yet</span>'}</div>${t !== mine && st.status !== 'started' ? `<button type="button" class="btn ghost small" data-switch="${t}" ${cnt(t) > mn ? 'disabled' : ''}>${cnt(t) > mn ? 'Full' : 'Join ' + TEAMS[t-1][0]}</button>` : ''}</div>`).join('')}</div>`; };
+const bindSwitch = (st, after) => $$('[data-switch]').forEach(b=>b.onclick = async () => { try{ const r = await Store.livePickTeam(S.token, st.id, +b.dataset.switch); if(r?.error){ toast(r.error); if(r.team_members) after(r); return; } after(r); }catch(e){ toast(e.message); } });
 // A team pick is stored as '<movement>_l<level>' (e.g. squat_l2): one movement at one level.
 const pickKey = (fam, lvl) => fam + '_l' + lvl;
 const pickInfo = k => { const m = /^(.*)_l([1-4])$/.exec(k) || [k, k, 1]; return {fid:m[1], lvl:+m[2], name:FAM[m[1]]?.levels[m[2]-1]?.n || FAM[m[1]]?.name || k}; };
@@ -3304,14 +3314,15 @@ let TP = null;
 function showTeamPick(st){
   const mine = myTeamOf(st); if(!mine) return;
   TP = {id:st.id, team:mine, n:st.pick_n, fids:[]};
-  const fidsOf = s2 => (s2.team_ex || []).find(t=>t.team===mine)?.fids || [];
+  const fidsOf = s2 => (s2.team_ex || []).find(t=>t.team===TP.team)?.fids || [];
   setView(`<p><button class="btn ghost small" id="tpDone">Later</button></p>
-    <h1>${teamChip(mine)} team: pick your exercises</h1>
+    <h1><span id="tpHead">${teamChip(mine)}</span> team: pick your exercises</h1>
+    <div id="tpTeams"></div>
     <p class="muted">Choose <b>${st.pick_n}</b> exercises together with your team. Everyone in the team sees the same list and can add or remove a movement: tap it again to remove it. Tap one level of a movement: tapping another level of the same movement replaces it. Your teacher starts everyone together.</p>
     ${REGIONS.map(r=>`<h2>${r}</h2>` + FAMILIES.filter(f=>f.region===r).map(famRow).join('')).join('')}
     <div class="dock" id="dock"></div>`);
   const draw = s2 => {
-    TP.fids = fidsOf(s2); const n = TP.fids.length;
+    TP.team = myTeamOf(s2) || TP.team; TP.fids = fidsOf(s2); const n = TP.fids.length; $('#tpHead').innerHTML = teamChip(TP.team); $('#tpTeams').innerHTML = teamBoard(s2, TP.team); bindSwitch(s2, draw);
     $$('.chip').forEach(b=>{ b.setAttribute('aria-pressed', TP.fids.includes(pickKey(b.dataset.fam, b.dataset.lvl))); const o = b.querySelector('.ord'); if(o) o.hidden = true; });
     $('#dock').innerHTML = `<div class="dock-in"><div><b>${n} of ${TP.n} chosen</b> <span class="muted">${n === TP.n ? 'Your team is ready. Wait for your teacher.' : 'pick ' + (TP.n - n) + ' more'}</span></div></div>`;
   };

@@ -1010,7 +1010,7 @@ language sql stable security definer set search_path = public as $$
     'classes', coalesce((select jsonb_agg(k.name order by k.name) from bw_classes k where k.id = l.class_id or k.id = any(coalesce(l.class_ids, '{}'::uuid[]))), '[]'::jsonb),
     'plan', coalesce((select to_jsonb(p) - 'active' from bw_plans p where p.id = l.plan_id), l.workout), 'custom', l.workout is not null, 'teams', l.teams, 'mode', l.mode, 'pick_n', l.pick_n,
     'team_ex', coalesce((select jsonb_agg(jsonb_build_object('team', x.team, 'fids', to_jsonb(x.fids))) from bw_live_team_ex x where x.live_id = l.id), '[]'::jsonb),
-    'team_members', coalesce((select jsonb_agg(jsonb_build_object('student_id', t.student_id, 'team', t.team) order by t.joined_at) from bw_live_teams t where t.live_id = l.id), '[]'::jsonb), 'only_gender', l.only_gender,
+    'team_members', coalesce((select jsonb_agg(jsonb_build_object('student_id', t.student_id, 'team', t.team, 'name', (select x.name from bw_students x where x.id = t.student_id)) order by t.joined_at) from bw_live_teams t where t.live_id = l.id), '[]'::jsonb), 'only_gender', l.only_gender,
     'size', (select count(*) from bw_students s where not s.is_teacher and bw__live_member(l, s)),
     'ready', coalesce((select jsonb_agg(r.student_id) from bw_live_ready r join bw_students s on s.id = r.student_id where r.live_id = l.id and not s.is_teacher), '[]'::jsonb))
   from bw_live l where l.id = p_live
@@ -1481,7 +1481,13 @@ begin
   if not found or l.status = 'ended' or not bw__live_member(l, s) then return jsonb_build_object('error', 'This live session has ended.'); end if;
   if l.teams < 2 or p_team is null or p_team not between 1 and l.teams then return jsonb_build_object('error', 'This session has no such team.'); end if;
   select team into mine from bw_live_teams where live_id = p_live and student_id = sid;
-  if mine is null then
+  if mine is not null and mine <> p_team then   -- change team: only before the start, and teams must stay balanced without me
+    if l.status <> 'waiting' then return jsonb_build_object('error', 'The session has started: you cannot change team now.') || bw__live_state(p_live); end if;
+    select count(*) into cnt from bw_live_teams where live_id = p_live and team = p_team;
+    select min(c) into mn from (select (select count(*) from bw_live_teams x where x.live_id = p_live and x.team = g.t and x.student_id <> sid) as c from generate_series(1, l.teams) g(t)) z;
+    if cnt > mn then return jsonb_build_object('error', 'That team is full. Pick a team with free places.', 'full', true) || bw__live_state(p_live); end if;
+    update bw_live_teams set team = p_team, joined_at = now() where live_id = p_live and student_id = sid;
+  elsif mine is null then
     select count(*) into cnt from bw_live_teams where live_id = p_live and team = p_team;
     select min(c) into mn from (select (select count(*) from bw_live_teams x where x.live_id = p_live and x.team = g.t) as c from generate_series(1, l.teams) g(t)) z;
     if cnt > mn then return jsonb_build_object('error', 'That team is full. Pick a team with free places.', 'full', true) || bw__live_state(p_live); end if;
